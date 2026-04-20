@@ -60,7 +60,7 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
 
   const isRentalsValid = props.formRentals.every(loc => {
     if (loc.tipo === 'ALOCAR') return loc.equipamento && loc.inicio && loc.fim;
-    return loc.empresa && loc.equipamento && loc.inicio && loc.fim && loc.quem_atender?.trim() && loc.motivo_locacao?.trim();
+    return loc.empresa && loc.equipamento && loc.inicio && loc.fim && loc.quem_atender && loc.motivo_locacao?.trim();
   });
 
   const isFlightsValid = props.formFlights.every(v => {
@@ -335,27 +335,19 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
                         </div>
                       </div>
 
-                      {/* Alerta de cotação em dólar (Gol) */}
-                      {loc.empresa === 'Gol' && loc.equipamento && (
-                        <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-sm px-3 py-2">
-                          <span className="text-yellow-400 text-[9px] font-black uppercase italic">
-                            ⚠ Equipamento Gol cobrado em USD — conversão automática p/ BRL no registro
-                          </span>
-                        </div>
-                      )}
-
                       {/* Campo: Quem vamos atender */}
                       <div className="space-y-1">
                         <label className="text-[7px] font-black text-emerald-400 uppercase block">
                           1. QUEM SERÁ ATENDIDO COM ESSA LOCAÇÃO?
                         </label>
-                        <input
-                          type="text"
+                        <select
                           value={loc.quem_atender || ''}
                           onChange={e => props.handleRentalChange(i, 'quem_atender', e.target.value)}
-                          placeholder="Ex: Voo LA 3041 / Cia LATAM..."
-                          className={`bg-slate-900/20 border p-2.5 font-black text-[10px] w-full italic rounded-sm outline-none focus:border-emerald-500 transition-colors ${!loc.quem_atender?.trim() ? 'border-amber-500/40' : 'border-white/5'}`}
-                        />
+                          className={`bg-slate-900/20 border p-2.5 font-black text-[10px] w-full italic rounded-sm outline-none focus:border-emerald-500 transition-colors appearance-none ${!loc.quem_atender?.trim() ? 'border-amber-500/40' : 'border-white/5'}`}
+                        >
+                          <option value="">SELECIONE A CIA</option>
+                          {props.airlines.map(cia => <option key={cia} value={cia}>{cia}</option>)}
+                        </select>
                       </div>
 
                       {/* Campo: Motivo da locação */}
