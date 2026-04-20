@@ -1,0 +1,25 @@
+
+{
+  "name": "RampControll - Sistema de Rampa",
+  "short_name": "RampControll",
+  "description": "Controle operacional e entrega de turno de rampa aeroportuária.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://drive.google.com/thumbnail?id=1Cfxz5qZPqBEZWVTN4QPhuXfqzuNcvMwR&sz=w192",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://drive.google.com/thumbnail?id=1Cfxz5qZPqBEZWVTN4QPhuXfqzuNcvMwR&sz=w512",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
