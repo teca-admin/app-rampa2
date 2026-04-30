@@ -1,7 +1,9 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://urohufpnorwbntpdmjuo.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVyb2h1ZnBub3J3Ym50cGRtanVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5NzY1ODksImV4cCI6MjA4MzU1MjU4OX0.pUcIwhBFJSRBDhDsQ_jNb2YMmab1VwtUrXVzyScCorw';
+const supabaseUrl = 'https://teca-admin-supabase.ly7t0m.easypanel.host/';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  db: { schema: 'ramp-control' },
+});

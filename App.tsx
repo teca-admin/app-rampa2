@@ -133,6 +133,18 @@ const App: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const handleAddAirline = useCallback(async (nome: string) => {
+    const { error } = await supabase.from('companhias_aereas').insert({ nome });
+    if (error) { alert('Erro ao cadastrar: ' + error.message); return; }
+    fetchData(true);
+  }, [fetchData]);
+
+  const handleAddEquipamento = useCallback(async (prefixo: string, nome: string) => {
+    const { error } = await supabase.from('equipamentos').insert({ prefixo, nome, status: 'OPERACIONAL' });
+    if (error) { alert('Erro ao cadastrar: ' + error.message); return; }
+    fetchData(true);
+  }, [fetchData]);
+
   const handleSaveReport = async () => {
     if (!formLeader) { alert("Selecione o Líder!"); return; }
     setIsSubmitting(true);
@@ -308,11 +320,13 @@ const App: React.FC = () => {
             handleAddTransporte={() => setFormTransporte([...formTransporte, { cia: '', manual_name: '' }])}
             handleRemoveTransporte={i => setFormTransporte(formTransporte.filter((_, idx) => idx !== i))}
             handleTransporteChange={(i, f, v) => { const u = [...formTransporte]; (u[i] as any)[f] = v; setFormTransporte(u); }}
-            fleetDetails={fleetDetails} 
-            isSubmitting={isSubmitting} 
+            fleetDetails={fleetDetails}
+            isSubmitting={isSubmitting}
             handleSaveReport={handleSaveReport}
-            resetForm={resetForm} 
+            resetForm={resetForm}
             setActiveTab={() => {}}
+            handleAddAirline={handleAddAirline}
+            handleAddEquipamento={handleAddEquipamento}
           />
         )}
       </main>

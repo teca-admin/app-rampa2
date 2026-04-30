@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Plus, Trash2, Send, RefreshCcw, Handshake, AlertTriangle, Plane, Lock } from 'lucide-react';
 
 interface NewReportTabProps {
@@ -43,6 +43,8 @@ interface NewReportTabProps {
   handleSaveReport: () => void;
   resetForm: () => void;
   setActiveTab: (t: any) => void;
+  handleAddAirline: (nome: string) => void;
+  handleAddEquipamento: (prefixo: string, nome: string) => void;
 }
 
 // Equipamentos segregados por fornecedor (correspondem exatamente à tabela de preços no Supabase)
@@ -57,6 +59,32 @@ const EMPRESAS_LOCACAO = Object.keys(EQUIPAMENTOS_POR_FORNECEDOR);
 
 const NewReportTab: React.FC<NewReportTabProps> = (props) => {
   const { themeClasses } = props;
+
+  const [newAirline, setNewAirline] = useState('');
+  const [newEquipPrefixo, setNewEquipPrefixo] = useState('');
+  const [newEquipNome, setNewEquipNome] = useState('');
+  const [savingAirline, setSavingAirline] = useState(false);
+  const [savingEquip, setSavingEquip] = useState(false);
+
+  const handleSaveAirline = async () => {
+    const nome = newAirline.trim().toUpperCase();
+    if (!nome) return;
+    setSavingAirline(true);
+    await props.handleAddAirline(nome);
+    setNewAirline('');
+    setSavingAirline(false);
+  };
+
+  const handleSaveEquip = async () => {
+    const prefixo = newEquipPrefixo.trim().toUpperCase();
+    const nome = newEquipNome.trim().toUpperCase();
+    if (!prefixo || !nome) return;
+    setSavingEquip(true);
+    await props.handleAddEquipamento(prefixo, nome);
+    setNewEquipPrefixo('');
+    setNewEquipNome('');
+    setSavingEquip(false);
+  };
 
   const isRentalsValid = props.formRentals.every(loc => {
     if (loc.tipo === 'ALOCAR') return loc.equipamento && loc.inicio && loc.fim;
@@ -476,6 +504,64 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
                  ))}
                </div>
             </div>
+         </div>
+
+         {/* CADASTROS RÁPIDOS */}
+         <div className={`${themeClasses.bgCard} border ${themeClasses.border} p-5 shadow-xl rounded-sm space-y-5`}>
+           <h4 className="text-[10px] font-black italic uppercase text-slate-400 tracking-widest">Cadastros Rápidos</h4>
+
+           {/* Nova CIA */}
+           <div className="space-y-2">
+             <label className="text-[8px] font-black text-blue-400 uppercase italic">Nova Companhia Aérea</label>
+             <div className="flex gap-2">
+               <input
+                 type="text"
+                 value={newAirline}
+                 onChange={e => setNewAirline(e.target.value)}
+                 onKeyDown={e => e.key === 'Enter' && handleSaveAirline()}
+                 placeholder="Ex: LATAM"
+                 className={`flex-1 ${themeClasses.bgInput} border ${themeClasses.border} p-3 font-black text-xs italic rounded-sm outline-none focus:border-blue-500`}
+               />
+               <button
+                 onClick={handleSaveAirline}
+                 disabled={!newAirline.trim() || savingAirline}
+                 className="px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-sm font-black uppercase italic text-[10px] disabled:opacity-30 transition-all flex items-center gap-1"
+               >
+                 {savingAirline ? <RefreshCcw size={12} className="animate-spin" /> : <Plus size={12} />}
+                 ADD
+               </button>
+             </div>
+           </div>
+
+           {/* Novo Equipamento */}
+           <div className="space-y-2">
+             <label className="text-[8px] font-black text-emerald-400 uppercase italic">Novo Equipamento (Frota)</label>
+             <div className="flex gap-2">
+               <input
+                 type="text"
+                 value={newEquipPrefixo}
+                 onChange={e => setNewEquipPrefixo(e.target.value)}
+                 placeholder="Prefixo (ex: LM00999)"
+                 className={`w-36 ${themeClasses.bgInput} border ${themeClasses.border} p-3 font-black text-xs italic rounded-sm outline-none focus:border-emerald-500`}
+               />
+               <input
+                 type="text"
+                 value={newEquipNome}
+                 onChange={e => setNewEquipNome(e.target.value)}
+                 onKeyDown={e => e.key === 'Enter' && handleSaveEquip()}
+                 placeholder="Tipo (ex: PUSHBACK)"
+                 className={`flex-1 ${themeClasses.bgInput} border ${themeClasses.border} p-3 font-black text-xs italic rounded-sm outline-none focus:border-emerald-500`}
+               />
+               <button
+                 onClick={handleSaveEquip}
+                 disabled={!newEquipPrefixo.trim() || !newEquipNome.trim() || savingEquip}
+                 className="px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-sm font-black uppercase italic text-[10px] disabled:opacity-30 transition-all flex items-center gap-1"
+               >
+                 {savingEquip ? <RefreshCcw size={12} className="animate-spin" /> : <Plus size={12} />}
+                 ADD
+               </button>
+             </div>
+           </div>
          </div>
 
        </div>
