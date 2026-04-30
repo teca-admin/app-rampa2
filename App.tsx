@@ -90,6 +90,8 @@ const App: React.FC = () => {
   const [formGseIn, setFormGseIn] = useState<{ prefixo: string }[]>([]);
   const [formFlights, setFormFlights] = useState<any[]>([]);
   const [formTransporte, setFormTransporte] = useState<{ cia: string; manual_name?: string }[]>([]);
+  const [formBriefing, setFormBriefing] = useState({ ativo: false, inicio: '', fim: '' });
+  const [formDebriefing, setFormDebriefing] = useState({ ativo: false, inicio: '', fim: '' });
 
   // Regra de data automática: se o turno não for madrugada, reseta para hoje
   useEffect(() => {
@@ -113,6 +115,8 @@ const App: React.FC = () => {
     setFormGseIn([]);
     setFormFlights([]);
     setFormTransporte([]);
+    setFormBriefing({ ativo: false, inicio: '', fim: '' });
+    setFormDebriefing({ ativo: false, inicio: '', fim: '' });
   }, []);
 
   const fetchData = useCallback(async (isSilent = false) => {
@@ -217,7 +221,11 @@ const App: React.FC = () => {
         gse_enviados: formGseOut,
         gse_retornados: formGseIn,
         tem_equipamento_enviado: formGseOut.length > 0,
-        tem_equipamento_retornado: formGseIn.length > 0
+        tem_equipamento_retornado: formGseIn.length > 0,
+        briefing_inicio: formBriefing.ativo ? (formBriefing.inicio || null) : null,
+        briefing_fim: formBriefing.ativo ? (formBriefing.fim || null) : null,
+        debriefing_inicio: formDebriefing.ativo ? (formDebriefing.inicio || null) : null,
+        debriefing_fim: formDebriefing.ativo ? (formDebriefing.fim || null) : null,
       };
 
       const { error } = await supabase.from('relatorios_consolidados').insert([reportPayload]);
@@ -327,6 +335,8 @@ const App: React.FC = () => {
             setActiveTab={() => {}}
             handleAddAirline={handleAddAirline}
             handleAddEquipamento={handleAddEquipamento}
+            formBriefing={formBriefing} setFormBriefing={setFormBriefing}
+            formDebriefing={formDebriefing} setFormDebriefing={setFormDebriefing}
           />
         )}
       </main>

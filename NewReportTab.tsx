@@ -45,6 +45,10 @@ interface NewReportTabProps {
   setActiveTab: (t: any) => void;
   handleAddAirline: (nome: string) => void;
   handleAddEquipamento: (prefixo: string, nome: string) => void;
+  formBriefing: { ativo: boolean; inicio: string; fim: string };
+  setFormBriefing: (b: any) => void;
+  formDebriefing: { ativo: boolean; inicio: string; fim: string };
+  setFormDebriefing: (d: any) => void;
 }
 
 // Equipamentos segregados por fornecedor (correspondem exatamente à tabela de preços no Supabase)
@@ -506,6 +510,60 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
             </div>
          </div>
 
+         {/* BRIEFING / DEBRIEFING */}
+         <div className={`${themeClasses.bgCard} border ${themeClasses.border} p-5 shadow-2xl rounded-sm`}>
+           <div className="flex items-center gap-3 mb-5">
+             <div className="w-1.5 h-6 bg-violet-500"></div>
+             <h4 className="text-[10px] font-black italic uppercase text-violet-500 tracking-widest">8 - BRIEFING / DEBRIEFING</h4>
+           </div>
+
+           <div className="grid grid-cols-2 gap-3">
+             {/* BRIEFING */}
+             <div className="space-y-3">
+               <button
+                 onClick={() => props.setFormBriefing({ ...props.formBriefing, ativo: !props.formBriefing.ativo })}
+                 className={`w-full py-4 border transition-all rounded-sm flex items-center justify-center text-center ${props.formBriefing.ativo ? 'bg-violet-500/20 border-violet-500 text-violet-400 shadow-lg' : `${themeClasses.bgInput} border-transparent opacity-50`}`}
+               >
+                 <span className="text-[9px] font-black uppercase italic leading-none">Briefing</span>
+               </button>
+               {props.formBriefing.ativo && (
+                 <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                   <div className="space-y-1">
+                     <label className="text-[7px] font-black text-slate-500 uppercase block">Início</label>
+                     <input type="time" value={props.formBriefing.inicio} onChange={e => props.setFormBriefing({ ...props.formBriefing, inicio: e.target.value })} className="bg-slate-900/20 border border-white/5 p-2 font-black text-[10px] text-blue-500 w-full rounded-sm" />
+                   </div>
+                   <div className="space-y-1">
+                     <label className="text-[7px] font-black text-slate-500 uppercase block">Fim</label>
+                     <input type="time" value={props.formBriefing.fim} onChange={e => props.setFormBriefing({ ...props.formBriefing, fim: e.target.value })} className="bg-slate-900/20 border border-white/5 p-2 font-black text-[10px] text-emerald-500 w-full rounded-sm" />
+                   </div>
+                 </div>
+               )}
+             </div>
+
+             {/* DEBRIEFING */}
+             <div className="space-y-3">
+               <button
+                 onClick={() => props.setFormDebriefing({ ...props.formDebriefing, ativo: !props.formDebriefing.ativo })}
+                 className={`w-full py-4 border transition-all rounded-sm flex items-center justify-center text-center ${props.formDebriefing.ativo ? 'bg-violet-500/20 border-violet-500 text-violet-400 shadow-lg' : `${themeClasses.bgInput} border-transparent opacity-50`}`}
+               >
+                 <span className="text-[9px] font-black uppercase italic leading-none">Debriefing</span>
+               </button>
+               {props.formDebriefing.ativo && (
+                 <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                   <div className="space-y-1">
+                     <label className="text-[7px] font-black text-slate-500 uppercase block">Início</label>
+                     <input type="time" value={props.formDebriefing.inicio} onChange={e => props.setFormDebriefing({ ...props.formDebriefing, inicio: e.target.value })} className="bg-slate-900/20 border border-white/5 p-2 font-black text-[10px] text-blue-500 w-full rounded-sm" />
+                   </div>
+                   <div className="space-y-1">
+                     <label className="text-[7px] font-black text-slate-500 uppercase block">Fim</label>
+                     <input type="time" value={props.formDebriefing.fim} onChange={e => props.setFormDebriefing({ ...props.formDebriefing, fim: e.target.value })} className="bg-slate-900/20 border border-white/5 p-2 font-black text-[10px] text-emerald-500 w-full rounded-sm" />
+                   </div>
+                 </div>
+               )}
+             </div>
+           </div>
+         </div>
+
          {/* CADASTROS RÁPIDOS */}
          <div className={`${themeClasses.bgCard} border ${themeClasses.border} p-5 shadow-xl rounded-sm space-y-5`}>
            <h4 className="text-[10px] font-black italic uppercase text-slate-400 tracking-widest">Cadastros Rápidos</h4>
@@ -536,29 +594,31 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
            {/* Novo Equipamento */}
            <div className="space-y-2">
              <label className="text-[8px] font-black text-emerald-400 uppercase italic">Novo Equipamento (Frota)</label>
-             <div className="flex gap-2">
-               <input
-                 type="text"
-                 value={newEquipPrefixo}
-                 onChange={e => setNewEquipPrefixo(e.target.value)}
-                 placeholder="Prefixo (ex: LM00999)"
-                 className={`w-36 ${themeClasses.bgInput} border ${themeClasses.border} p-3 font-black text-xs italic rounded-sm outline-none focus:border-emerald-500`}
-               />
-               <input
-                 type="text"
-                 value={newEquipNome}
-                 onChange={e => setNewEquipNome(e.target.value)}
-                 onKeyDown={e => e.key === 'Enter' && handleSaveEquip()}
-                 placeholder="Tipo (ex: PUSHBACK)"
-                 className={`flex-1 ${themeClasses.bgInput} border ${themeClasses.border} p-3 font-black text-xs italic rounded-sm outline-none focus:border-emerald-500`}
-               />
+             <div className="flex flex-col gap-2">
+               <div className="flex gap-2">
+                 <input
+                   type="text"
+                   value={newEquipPrefixo}
+                   onChange={e => setNewEquipPrefixo(e.target.value)}
+                   placeholder="Prefixo (ex: LM00999)"
+                   className={`flex-1 ${themeClasses.bgInput} border ${themeClasses.border} p-3 font-black text-xs italic rounded-sm outline-none focus:border-emerald-500`}
+                 />
+                 <input
+                   type="text"
+                   value={newEquipNome}
+                   onChange={e => setNewEquipNome(e.target.value)}
+                   onKeyDown={e => e.key === 'Enter' && handleSaveEquip()}
+                   placeholder="Tipo (ex: PUSHBACK)"
+                   className={`flex-1 ${themeClasses.bgInput} border ${themeClasses.border} p-3 font-black text-xs italic rounded-sm outline-none focus:border-emerald-500`}
+                 />
+               </div>
                <button
                  onClick={handleSaveEquip}
                  disabled={!newEquipPrefixo.trim() || !newEquipNome.trim() || savingEquip}
-                 className="px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-sm font-black uppercase italic text-[10px] disabled:opacity-30 transition-all flex items-center gap-1"
+                 className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-sm font-black uppercase italic text-[10px] disabled:opacity-30 transition-all flex items-center justify-center gap-1"
                >
                  {savingEquip ? <RefreshCcw size={12} className="animate-spin" /> : <Plus size={12} />}
-                 ADD
+                 ADD EQUIPAMENTO
                </button>
              </div>
            </div>
