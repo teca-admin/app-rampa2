@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { 
+import {
   Zap, Sun, Moon, RefreshCcw, Download, Send
 } from 'lucide-react';
 import { supabase } from './supabase';
@@ -8,6 +8,8 @@ import { FleetStat } from './types';
 
 // Subcomponentes
 import NewReportTab from './NewReportTab';
+import GerenciaDashboard from './GerenciaDashboard';
+import CoordDashboard from './CoordDashboard';
 
 // --- CONFIG ---
 const WEBHOOK_URL = 'https://teca-admin-n8n.ly7t0m.easypanel.host/webhook/e4eb976b-e3b7-40e7-b069-56c3162c9f70';
@@ -56,6 +58,9 @@ const App: React.FC = () => {
   };
 
   const isDarkMode = false;
+
+  // Controle de qual tela está ativa (só funciona em desktop)
+  const [activeView, setActiveView] = useState<'report' | 'gerencia' | 'coordenacao'>('report');
   
   useEffect(() => {
     const handleResize = () => {
@@ -231,8 +236,31 @@ const App: React.FC = () => {
       const { error } = await supabase.from('relatorios_consolidados').insert([reportPayload]);
       if (error) throw error;
 
-      if (formGseOut.length > 0) await supabase.from('equipamentos').update({ status: 'MANUTENCAO' }).in('prefixo', formGseOut.map(i => i.prefixo));
-      if (formGseIn.length > 0) await supabase.from('equipamentos').update({ status: 'OPERACIONAL' }).in('prefixo', formGseIn.map(i => i.prefixo));
+      if (formGseOut.length > 0) {
+        await supabase.from('equipamentos').update({ status: 'MANUTENCAO' }).in('prefixo', formGseOut.map(i => i.prefixo));
+        await supabase.from('historico_status_equipamentos').insert(
+          formGseOut.map(gse => ({
+            prefixo: gse.prefixo,
+            status_novo: 'MANUTENCAO',
+            motivo: gse.motivo,
+            data: formDate,
+            turno: formShift === 'manha' ? 'manhã' : formShift,
+            lider: formLeader,
+          }))
+        );
+      }
+      if (formGseIn.length > 0) {
+        await supabase.from('equipamentos').update({ status: 'OPERACIONAL' }).in('prefixo', formGseIn.map(i => i.prefixo));
+        await supabase.from('historico_status_equipamentos').insert(
+          formGseIn.map(gse => ({
+            prefixo: gse.prefixo,
+            status_novo: 'OPERACIONAL',
+            data: formDate,
+            turno: formShift === 'manha' ? 'manhã' : formShift,
+            lider: formLeader,
+          }))
+        );
+      }
 
       await fetch(WEBHOOK_URL, { 
         method: 'POST', 
@@ -276,8 +304,38 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Seletor de dashboard — visível apenas em desktop */}
+          {!isMobile && (
+            <div style={{ display: 'flex', gap: 6, background: '#F1F5F9', borderRadius: 8, padding: 4 }}>
+              {(['gerencia', 'coordenacao'] as const).map(view => {
+                const label = view === 'gerencia' ? 'Gerência' : 'Coordenação';
+                const active = activeView === view;
+                return (
+                  <button
+                    key={view}
+                    onClick={() => setActiveView(active ? 'report' : view)}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: 6,
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      fontFamily: "'Inter', sans-serif",
+                      background: active ? '#1E293B' : 'transparent',
+                      color: active ? '#fff' : '#64748B',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {deferredPrompt && (
-            <button 
+            <button
               onClick={handleInstallApp}
               className="flex items-center gap-2 h-[42px] px-4 rounded-sm border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all animate-pulse"
               title="Instalar Aplicativo"
@@ -292,52 +350,71 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className={`flex-1 overflow-hidden ${isMobile ? 'p-3' : 'p-6'} max-w-[1200px] mx-auto w-full`}>
-        {loading ? (
-          <div className="h-full flex flex-col items-center justify-center opacity-20">
-            <RefreshCcw size={48} className="animate-spin text-blue-500 mb-4" />
-            <p className="font-black uppercase italic tracking-widest">Sincronizando Dados...</p>
+      <main className={`flex-1 overflow-hidden ${!isMobile && activeView !== 'report' ? '' : isMobile ? 'p-3' : 'p-6'} ${!isMobile && activeView !== 'report' ? '' : 'max-w-[1200px] mx-auto w-full'}`}
+        style={!isMobile && activeView !== 'report' ? { width: '100%', height: '100%' } : undefined}
+      >
+        {/* Dashboard de Gerência — apenas desktop */}
+        {!isMobile && activeView === 'gerencia' && (
+          <div style={{ height: '100%', overflowY: 'auto' }}>
+            <GerenciaDashboard />
           </div>
-        ) : (
-          <NewReportTab 
-            themeClasses={themeClasses} 
-            formDate={formDate} setFormDate={setFormDate}
-            formShift={formShift} setFormShift={setFormShift}
-            formLeader={formLeader} setFormLeader={setFormLeader} leaders={leaders}
-            formHR={formHR} setFormHR={setFormHR}
-            formPendencias={formPendencias} setFormPendencias={setFormPendencias}
-            formOcorrencias={formOcorrencias} setFormOcorrencias={setFormOcorrencias}
-            formRentals={formRentals} 
-            handleAddRental={() => setFormRentals([...formRentals, { tipo: 'ALOCAR', equipamento: '', inicio: '', fim: '' }])}
-            handleRemoveRental={i => setFormRentals(formRentals.filter((_, idx) => idx !== i))}
-            handleRentalChange={(i, f, v) => { const u = [...formRentals]; (u[i] as any)[f] = v; setFormRentals(u); }}
-            formFlights={formFlights} 
-            handleAddFlight={() => setFormFlights([...formFlights, { companhia: '', numero: 'S/N', pouso: '', reboque: '', manual_name: '' }])}
-            handleRemoveFlight={i => setFormFlights(formFlights.filter((_, idx) => idx !== i))}
-            handleFlightChange={(i, f, v) => { const u = [...formFlights]; u[i][f] = v; setFormFlights(u); }}
-            airlines={airlines}
-            formGseOut={formGseOut} 
-            handleAddGseOut={() => setFormGseOut([...formGseOut, { prefixo: '', motivo: '' }])}
-            handleRemoveGseOut={i => setFormGseOut(formGseOut.filter((_, idx) => idx !== i))}
-            handleGseOutChange={(i, f, v) => { const u = [...formGseOut]; u[i][f] = v; setFormGseOut(u); }}
-            formGseIn={formGseIn} 
-            handleAddGseIn={() => setFormGseIn([...formGseIn, { prefixo: '' }])}
-            handleRemoveGseIn={i => setFormGseIn(formGseIn.filter((_, idx) => idx !== i))}
-            handleGseInChange={(i, v) => { const u = [...formGseIn]; u[i].prefixo = v; setFormGseIn(u); }}
-            formTransporte={formTransporte}
-            handleAddTransporte={() => setFormTransporte([...formTransporte, { cia: '', manual_name: '' }])}
-            handleRemoveTransporte={i => setFormTransporte(formTransporte.filter((_, idx) => idx !== i))}
-            handleTransporteChange={(i, f, v) => { const u = [...formTransporte]; (u[i] as any)[f] = v; setFormTransporte(u); }}
-            fleetDetails={fleetDetails}
-            isSubmitting={isSubmitting}
-            handleSaveReport={handleSaveReport}
-            resetForm={resetForm}
-            setActiveTab={() => {}}
-            handleAddAirline={handleAddAirline}
-            handleAddEquipamento={handleAddEquipamento}
-            formBriefing={formBriefing} setFormBriefing={setFormBriefing}
-            formDebriefing={formDebriefing} setFormDebriefing={setFormDebriefing}
-          />
+        )}
+
+        {/* Dashboard de Coordenação — apenas desktop */}
+        {!isMobile && activeView === 'coordenacao' && (
+          <div style={{ height: '100%', overflowY: 'auto' }}>
+            <CoordDashboard />
+          </div>
+        )}
+
+        {/* Formulário de relatório — sempre visível no mobile, e no desktop quando nenhum dashboard está ativo */}
+        {(isMobile || activeView === 'report') && (
+          loading ? (
+            <div className="h-full flex flex-col items-center justify-center opacity-20">
+              <RefreshCcw size={48} className="animate-spin text-blue-500 mb-4" />
+              <p className="font-black uppercase italic tracking-widest">Sincronizando Dados...</p>
+            </div>
+          ) : (
+            <NewReportTab
+              themeClasses={themeClasses}
+              formDate={formDate} setFormDate={setFormDate}
+              formShift={formShift} setFormShift={setFormShift}
+              formLeader={formLeader} setFormLeader={setFormLeader} leaders={leaders}
+              formHR={formHR} setFormHR={setFormHR}
+              formPendencias={formPendencias} setFormPendencias={setFormPendencias}
+              formOcorrencias={formOcorrencias} setFormOcorrencias={setFormOcorrencias}
+              formRentals={formRentals}
+              handleAddRental={() => setFormRentals([...formRentals, { tipo: 'ALOCAR', equipamento: '', inicio: '', fim: '' }])}
+              handleRemoveRental={i => setFormRentals(formRentals.filter((_, idx) => idx !== i))}
+              handleRentalChange={(i, f, v) => { const u = [...formRentals]; (u[i] as any)[f] = v; setFormRentals(u); }}
+              formFlights={formFlights}
+              handleAddFlight={() => setFormFlights([...formFlights, { companhia: '', numero: 'S/N', pouso: '', reboque: '', manual_name: '' }])}
+              handleRemoveFlight={i => setFormFlights(formFlights.filter((_, idx) => idx !== i))}
+              handleFlightChange={(i, f, v) => { const u = [...formFlights]; u[i][f] = v; setFormFlights(u); }}
+              airlines={airlines}
+              formGseOut={formGseOut}
+              handleAddGseOut={() => setFormGseOut([...formGseOut, { prefixo: '', motivo: '' }])}
+              handleRemoveGseOut={i => setFormGseOut(formGseOut.filter((_, idx) => idx !== i))}
+              handleGseOutChange={(i, f, v) => { const u = [...formGseOut]; u[i][f] = v; setFormGseOut(u); }}
+              formGseIn={formGseIn}
+              handleAddGseIn={() => setFormGseIn([...formGseIn, { prefixo: '' }])}
+              handleRemoveGseIn={i => setFormGseIn(formGseIn.filter((_, idx) => idx !== i))}
+              handleGseInChange={(i, v) => { const u = [...formGseIn]; u[i].prefixo = v; setFormGseIn(u); }}
+              formTransporte={formTransporte}
+              handleAddTransporte={() => setFormTransporte([...formTransporte, { cia: '', manual_name: '' }])}
+              handleRemoveTransporte={i => setFormTransporte(formTransporte.filter((_, idx) => idx !== i))}
+              handleTransporteChange={(i, f, v) => { const u = [...formTransporte]; (u[i] as any)[f] = v; setFormTransporte(u); }}
+              fleetDetails={fleetDetails}
+              isSubmitting={isSubmitting}
+              handleSaveReport={handleSaveReport}
+              resetForm={resetForm}
+              setActiveTab={() => {}}
+              handleAddAirline={handleAddAirline}
+              handleAddEquipamento={handleAddEquipamento}
+              formBriefing={formBriefing} setFormBriefing={setFormBriefing}
+              formDebriefing={formDebriefing} setFormDebriefing={setFormDebriefing}
+            />
+          )
         )}
       </main>
 
