@@ -59,8 +59,8 @@ const App: React.FC = () => {
 
   const isDarkMode = false;
 
-  // Controle de qual tela está ativa (só funciona em desktop)
-  const [activeView, setActiveView] = useState<'report' | 'gerencia' | 'coordenacao'>('report');
+  // Desktop sempre mostra um dashboard; mobile sempre mostra o formulário
+  const [activeView, setActiveView] = useState<'gerencia' | 'coordenacao'>('gerencia');
   
   useEffect(() => {
     const handleResize = () => {
@@ -288,19 +288,31 @@ const App: React.FC = () => {
     <div className={`h-screen ${themeClasses.bgMain} ${themeClasses.textMain} flex flex-col font-sans overflow-hidden transition-colors duration-300`}>
       <header className={`flex-none ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'} border-b px-6 py-4 flex items-center justify-between shadow-xl z-20`}>
         <div className="flex items-center gap-4">
-          <div className="bg-white p-1 rounded shadow-lg overflow-hidden flex items-center justify-center w-[38px] h-[38px]">
-            <img 
-              src="https://drive.google.com/thumbnail?id=1Cfxz5qZPqBEZWVTN4QPhuXfqzuNcvMwR&sz=w512" 
-              alt="Logo" 
-              className="w-full h-full object-contain"
+          {isMobile ? (
+            // Mobile: logo do app + nome
+            <>
+              <div className="bg-white p-1 rounded shadow-lg overflow-hidden flex items-center justify-center w-[38px] h-[38px]">
+                <img
+                  src="https://drive.google.com/thumbnail?id=1Cfxz5qZPqBEZWVTN4QPhuXfqzuNcvMwR&sz=w512"
+                  alt="Logo"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+              <div className="flex flex-col">
+                <h1 className={`text-xl font-black italic uppercase leading-none ${themeClasses.textHeader}`}>Ramp<span className="text-blue-500">Controll</span></h1>
+                <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest mt-0.5 flex items-center gap-1">
+                  <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></span> PWA Ativo
+                </span>
+              </div>
+            </>
+          ) : (
+            // Desktop: logo WFS
+            <img
+              src="https://drive.google.com/thumbnail?id=1sNzDKhdh2zH8d8DoyqIjx8l5LzBEXN5g&sz=w512"
+              alt="WFS"
+              style={{ height: 40, objectFit: 'contain' }}
             />
-          </div>
-          <div className="flex flex-col">
-            <h1 className={`text-xl font-black italic uppercase leading-none ${themeClasses.textHeader}`}>Ramp<span className="text-blue-500">Controll</span></h1>
-            <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest mt-0.5 flex items-center gap-1">
-              <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></span> PWA Ativo
-            </span>
-          </div>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -334,7 +346,8 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {deferredPrompt && (
+          {/* Instalar App — apenas no mobile */}
+          {isMobile && deferredPrompt && (
             <button
               onClick={handleInstallApp}
               className="flex items-center gap-2 h-[42px] px-4 rounded-sm border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all animate-pulse"
@@ -350,25 +363,9 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className={`flex-1 overflow-hidden ${!isMobile && activeView !== 'report' ? '' : isMobile ? 'p-3' : 'p-6'} ${!isMobile && activeView !== 'report' ? '' : 'max-w-[1200px] mx-auto w-full'}`}
-        style={!isMobile && activeView !== 'report' ? { width: '100%', height: '100%' } : undefined}
-      >
-        {/* Dashboard de Gerência — apenas desktop */}
-        {!isMobile && activeView === 'gerencia' && (
-          <div style={{ height: '100%', overflowY: 'auto' }}>
-            <GerenciaDashboard />
-          </div>
-        )}
-
-        {/* Dashboard de Coordenação — apenas desktop */}
-        {!isMobile && activeView === 'coordenacao' && (
-          <div style={{ height: '100%', overflowY: 'auto' }}>
-            <CoordDashboard />
-          </div>
-        )}
-
-        {/* Formulário de relatório — sempre visível no mobile, e no desktop quando nenhum dashboard está ativo */}
-        {(isMobile || activeView === 'report') && (
+      <main className={`flex-1 overflow-hidden${isMobile ? ' p-3 max-w-[1200px] mx-auto w-full' : ''}`}>
+        {isMobile ? (
+          // Mobile: sempre o formulário de relatório
           loading ? (
             <div className="h-full flex flex-col items-center justify-center opacity-20">
               <RefreshCcw size={48} className="animate-spin text-blue-500 mb-4" />
@@ -415,6 +412,9 @@ const App: React.FC = () => {
               formDebriefing={formDebriefing} setFormDebriefing={setFormDebriefing}
             />
           )
+        ) : (
+          // Desktop: sempre um dashboard
+          activeView === 'gerencia' ? <GerenciaDashboard /> : <CoordDashboard />
         )}
       </main>
 
