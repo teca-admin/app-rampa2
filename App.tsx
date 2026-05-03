@@ -306,12 +306,20 @@ const App: React.FC = () => {
               </div>
             </>
           ) : (
-            // Desktop: logo WFS
-            <img
-              src="https://drive.google.com/thumbnail?id=1sNzDKhdh2zH8d8DoyqIjx8l5LzBEXN5g&sz=w512"
-              alt="WFS"
-              style={{ height: 40, objectFit: 'contain' }}
-            />
+            // Desktop: logo WFS + título do dashboard
+            <>
+              <img
+                src="https://drive.google.com/thumbnail?id=1sNzDKhdh2zH8d8DoyqIjx8l5LzBEXN5g&sz=w512"
+                alt="WFS"
+                style={{ height: 52, objectFit: 'contain' }}
+              />
+              <div style={{ borderLeft: '2px solid #E2E8F0', paddingLeft: 14, marginLeft: 4 }}>
+                <p style={{ fontSize: 11, color: '#94A3B8', margin: 0, lineHeight: 1.3, fontFamily: "'Inter', sans-serif", fontWeight: 500 }}>Dashboard de</p>
+                <h1 style={{ fontSize: 20, fontWeight: 700, color: '#EF4444', margin: 0, lineHeight: 1, fontFamily: "'Inter', sans-serif" }}>
+                  {activeView === 'gerencia' ? 'Gerência' : 'Coordenação'}
+                </h1>
+              </div>
+            </>
           )}
         </div>
 

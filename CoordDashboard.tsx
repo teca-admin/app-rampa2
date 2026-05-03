@@ -124,10 +124,6 @@ const CoordDashboard: React.FC = () => {
     }}>
       {/* ── Header row ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
-        <div style={{ marginRight: 8 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1E293B', margin: 0, lineHeight: 1 }}>Dashboard Coordenação</h2>
-          <p style={{ fontSize: 11, color: '#94A3B8', margin: '2px 0 0' }}>Voos · Briefings · Transportes · Faltas</p>
-        </div>
         <Pill label="Total Voos" value={String(totalFlights)} icon={<Plane size={16} />} />
         <Pill label="Briefings" value={String(briefings)} icon={<MessageSquare size={16} />} />
         <Pill label="Debriefings" value={String(debriefings)} icon={<CheckSquare size={16} />} />
@@ -171,7 +167,7 @@ const CoordDashboard: React.FC = () => {
                     <YAxis tick={{ fontSize: 10, fill: '#64748B' }} allowDecimals={false} width={28} />
                     <Tooltip content={<ChartTooltip />} />
                     <Bar dataKey="voos" name="Voos" radius={[4, 4, 0, 0]}>
-                      <LabelList dataKey="voos" position="top" style={{ fontSize: 10, fill: '#1E293B', fontWeight: 700 }} />
+                      <LabelList dataKey="voos" position="insideTop" style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }} />
                       {flightsByDay.map((entry, i) => (
                         <Cell key={i} fill={entry.voos === maxFlights && maxFlights > 0 ? '#EF4444' : '#1E293B'} />
                       ))}
@@ -194,7 +190,7 @@ const CoordDashboard: React.FC = () => {
                     <YAxis dataKey="cia" type="category" tick={{ fontSize: 10, fill: '#64748B' }} width={90} />
                     <Tooltip content={<ChartTooltip />} />
                     <Bar dataKey="total" name="Transportes" radius={[0, 4, 4, 0]}>
-                      <LabelList dataKey="total" position="right" style={{ fontSize: 11, fill: '#1E293B', fontWeight: 700 }} />
+                      <LabelList dataKey="total" position="insideRight" style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }} />
                       {transportByAirline.map((_, i) => <Cell key={i} fill={i === 0 ? '#EF4444' : '#1E293B'} />)}
                     </Bar>
                   </BarChart>

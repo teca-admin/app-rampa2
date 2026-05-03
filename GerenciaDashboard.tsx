@@ -14,17 +14,17 @@ import {
 
 // ─── Donut SVG ────────────────────────────────────────────────────────────────
 const DonutChart: React.FC<{ pct: number; label: string }> = ({ pct, label }) => {
-  const r = 58; const circ = 2 * Math.PI * r;
+  const r = 72; const circ = 2 * Math.PI * r;
   return (
-    <div style={{ width: 140, height: 140, flexShrink: 0, margin: '0 auto' }}>
-      <svg width={140} height={140} viewBox="0 0 140 140">
-        <circle cx={70} cy={70} r={r} fill="none" stroke="#E2E8F0" strokeWidth={22} />
-        <circle cx={70} cy={70} r={r} fill="none" stroke="#1E293B" strokeWidth={22}
+    <div style={{ width: 180, height: 180, flexShrink: 0, margin: '0 auto' }}>
+      <svg width={180} height={180} viewBox="0 0 180 180">
+        <circle cx={90} cy={90} r={r} fill="none" stroke="#E2E8F0" strokeWidth={26} />
+        <circle cx={90} cy={90} r={r} fill="none" stroke="#1E293B" strokeWidth={26}
           strokeDasharray={`${circ * pct} ${circ * (1 - pct)}`}
           strokeDashoffset={circ * 0.25} strokeLinecap="butt"
           style={{ transition: 'stroke-dasharray 0.5s ease' }} />
-        <text x={70} y={65} textAnchor="middle" fill="#64748B" fontSize={10} fontFamily="Inter,sans-serif">Total</text>
-        <text x={70} y={82} textAnchor="middle" fill="#1E293B" fontSize={14} fontWeight={700} fontFamily="Inter,sans-serif">{label}</text>
+        <text x={90} y={84} textAnchor="middle" fill="#64748B" fontSize={12} fontFamily="Inter,sans-serif">Total</text>
+        <text x={90} y={104} textAnchor="middle" fill="#1E293B" fontSize={16} fontWeight={700} fontFamily="Inter,sans-serif">{label}</text>
       </svg>
     </div>
   );
@@ -152,10 +152,6 @@ const GerenciaDashboard: React.FC = () => {
     }}>
       {/* ── Header row ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
-        <div style={{ marginRight: 8 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1E293B', margin: 0, lineHeight: 1 }}>Dashboard Gerência</h2>
-          <p style={{ fontSize: 11, color: '#94A3B8', margin: '2px 0 0' }}>Locações externas · Voos · Frota</p>
-        </div>
         <Pill label="Total Locação" value={fmtBRL(totalCost)} icon={<DollarSign size={16} />} />
         <Pill label="Horas Cobradas" value={`${totalUnits}h`} icon={<Clock size={16} />} />
         <Pill label="Total Voos" value={String(totalFlights)} icon={<Plane size={16} />} />
@@ -183,7 +179,7 @@ const GerenciaDashboard: React.FC = () => {
       ) : (
         <>
           {/* ── Row 1: Donut + Custo por Equip + Top 10 ── */}
-          <div style={{ flex: '0 0 42%', minHeight: 0, display: 'grid', gridTemplateColumns: '220px 1fr 1fr', gap: 12 }}>
+          <div style={{ flex: '0 0 42%', minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1.2fr 1.2fr', gap: 12 }}>
 
             {/* Donut + legend */}
             <div style={{
@@ -223,7 +219,7 @@ const GerenciaDashboard: React.FC = () => {
                     <YAxis tick={{ fontSize: 9, fill: '#64748B' }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} width={36} />
                     <Tooltip content={<ChartTooltip />} />
                     <Bar dataKey="cost" name="R$ Custo" radius={[4, 4, 0, 0]}>
-                      <LabelList dataKey="cost" position="top" formatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)} style={{ fontSize: 9, fill: '#1E293B', fontWeight: 700 }} />
+                      <LabelList dataKey="cost" position="insideTop" formatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)} style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }} />
                       {byEquip.map((_, i) => <Cell key={i} fill={i === 0 ? '#EF4444' : '#1E293B'} />)}
                     </Bar>
                   </BarChart>
@@ -245,7 +241,7 @@ const GerenciaDashboard: React.FC = () => {
                     <YAxis dataKey="name" type="category" tick={{ fontSize: 9, fill: '#64748B' }} width={80} />
                     <Tooltip content={<ChartTooltip />} />
                     <Bar dataKey="horas" name="Horas" radius={[0, 4, 4, 0]}>
-                      <LabelList dataKey="horas" position="right" formatter={(v: number) => `${v}h`} style={{ fontSize: 10, fill: '#1E293B', fontWeight: 700 }} />
+                      <LabelList dataKey="horas" position="insideRight" formatter={(v: number) => `${v}h`} style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }} />
                       {top10.map((_, i) => <Cell key={i} fill={i === 0 ? '#EF4444' : '#1E293B'} />)}
                     </Bar>
                   </BarChart>
@@ -268,7 +264,7 @@ const GerenciaDashboard: React.FC = () => {
                   <Tooltip content={<ChartTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 12 }} formatter={v => <span style={{ color: '#1E293B', fontWeight: 500 }}>{v}</span>} />
                   <Bar yAxisId="l" dataKey="Voos" fill="#1E293B" radius={[4, 4, 0, 0]} opacity={0.9}>
-                    <LabelList dataKey="Voos" position="top" style={{ fontSize: 9, fill: '#1E293B', fontWeight: 700 }} />
+                    <LabelList dataKey="Voos" position="insideTop" style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }} />
                   </Bar>
                   <Line yAxisId="r" type="monotone" dataKey="Locações (h)" stroke="#EF4444" strokeWidth={2}
                     dot={{ r: 3, fill: '#fff', stroke: '#EF4444', strokeWidth: 2 }} />
