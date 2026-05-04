@@ -25,9 +25,8 @@ const DonutChart: React.FC<{
   segments: [string, number][];
   total: number;
   label: string;
-  selectedName?: string | null;
   onSelect?: (name: string) => void;
-}> = ({ segments, total, label, selectedName, onSelect }) => {
+}> = ({ segments, total, label, onSelect }) => {
   const r = 72; const circ = 2 * Math.PI * r;
   let cumulative = 0;
   return (
@@ -45,14 +44,11 @@ const DonutChart: React.FC<{
               strokeDasharray={`${segLen} ${circ - segLen}`}
               strokeDashoffset={offset}
               strokeLinecap="butt"
-              opacity={selectedName && name !== selectedName ? 0.2 : 1}
               onClick={() => onSelect?.(name)}
-              style={{ cursor: 'pointer', transition: 'opacity 0.25s ease' }} />
+              style={{ cursor: 'pointer', transition: 'all 0.3s ease' }} />
           );
         })}
-        <text x={90} y={84} textAnchor="middle" fill="#64748B" fontSize={12} fontFamily="Inter,sans-serif">
-          {selectedName ?? 'Total'}
-        </text>
+        <text x={90} y={84} textAnchor="middle" fill="#64748B" fontSize={12} fontFamily="Inter,sans-serif">Total</text>
         <text x={90} y={104} textAnchor="middle" fill="#1E293B" fontSize={16} fontWeight={700} fontFamily="Inter,sans-serif">{label}</text>
       </svg>
     </div>
@@ -93,6 +89,7 @@ const GerenciaDashboard: React.FC = () => {
   const [showPicker, setShowPicker] = useState(false);
   const [reports, setReports] = useState<any[]>([]);
   const [fleetHistory, setFleetHistory] = useState<any[]>([]);
+  const [equipNames, setEquipNames] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
   const [selectedEquipment, setSelectedEquipment] = useState<string | null>(null);
@@ -101,17 +98,23 @@ const GerenciaDashboard: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [{ data: reps }, { data: hist, error: histError }] = await Promise.all([
+    const [{ data: reps }, { data: hist, error: histError }, { data: equips }] = await Promise.all([
       supabase.from('relatorios_consolidados')
         .select('data, locacoes, voos')
         .gte('data', startDate).lte('data', endDate).order('data'),
       supabase.from('historico_status_equipamentos')
         .select('prefixo, status_novo, data, turno, lider, motivo')
         .gte('data', startDate).lte('data', endDate).order('data'),
+      supabase.from('equipamentos').select('prefixo, nome'),
     ]);
-    if (histError) console.error('[Manutenção] erro ao buscar histórico:', histError);
+    if (histError) console.error('[Manutenção] erro:', histError);
     setReports(reps || []);
     setFleetHistory(hist || []);
+    if (equips) {
+      const m = new Map<string, string>();
+      equips.forEach((e: any) => m.set(e.prefixo, e.nome));
+      setEquipNames(m);
+    }
     setLoading(false);
   }, [startDate, endDate]);
 
@@ -124,7 +127,7 @@ const GerenciaDashboard: React.FC = () => {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  // ── Locações com data do relatório anexada ────────────────────────────────
+  // ── Locações base com data do relatório ───────────────────────────────────
   const locacoes = useMemo(() =>
     reports.flatMap(r =>
       (r.locacoes || [])
@@ -132,38 +135,58 @@ const GerenciaDashboard: React.FC = () => {
         .map((l: any) => ({ ...l, _date: r.data }))
     ), [reports]);
 
-  // ── Totais globais (pills, donut) — não filtrados por fornecedor ──────────
+  // ── Pills globais (nunca filtrados) ───────────────────────────────────────
   const totalCost = useMemo(() =>
-    locacoes.reduce((s, l) => s + hoursBilled(l.inicio, l.fim) * (l.valor_hora_brl || 0), 0), [locacoes]);
+    locacoes.reduce((s: number, l: any) => s + hoursBilled(l.inicio, l.fim) * (l.valor_hora_brl || 0), 0), [locacoes]);
 
   const totalUnits = useMemo(() =>
-    locacoes.reduce((s, l) => s + hoursBilled(l.inicio, l.fim), 0), [locacoes]);
+    locacoes.reduce((s: number, l: any) => s + hoursBilled(l.inicio, l.fim), 0), [locacoes]);
 
   const totalFlights = useMemo(() =>
     reports.reduce((s, r) => s + (r.voos || []).length, 0), [reports]);
 
-  const supplierMap = useMemo(() => {
+  // ── Fontes filtradas separadamente ────────────────────────────────────────
+  // Filtrado só por fornecedor → alimenta o card de equipamentos
+  const supplierFilteredLocacoes = useMemo(() =>
+    selectedSupplier ? locacoes.filter((l: any) => l.empresa === selectedSupplier) : locacoes,
+    [locacoes, selectedSupplier]);
+
+  // Filtrado só por equipamento → alimenta o card de fornecedores
+  const equipmentFilteredLocacoes = useMemo(() =>
+    selectedEquipment ? locacoes.filter((l: any) => l.equipamento === selectedEquipment) : locacoes,
+    [locacoes, selectedEquipment]);
+
+  // Filtrado pelos dois → alimenta o gráfico de análise diária
+  const fullyFilteredLocacoes = useMemo(() =>
+    selectedEquipment ? supplierFilteredLocacoes.filter((l: any) => l.equipamento === selectedEquipment) : supplierFilteredLocacoes,
+    [supplierFilteredLocacoes, selectedEquipment]);
+
+  // ── Custo por fornecedor (responde ao filtro de equipamento) ──────────────
+  const supplierMapAll = useMemo(() => {
     const m = new Map<string, number>();
-    locacoes.forEach(l => {
+    equipmentFilteredLocacoes.forEach((l: any) => {
       const h = hoursBilled(l.inicio, l.fim);
       m.set(l.empresa || 'Outros', (m.get(l.empresa || 'Outros') || 0) + h * (l.valor_hora_brl || 0));
     });
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
-  }, [locacoes]);
+  }, [equipmentFilteredLocacoes]);
 
-  // ── Locações filtradas pelo fornecedor selecionado ────────────────────────
-  const filteredLocacoes = useMemo(() =>
-    selectedSupplier ? locacoes.filter(l => l.empresa === selectedSupplier) : locacoes,
-    [locacoes, selectedSupplier]);
+  // Se fornecedor selecionado: mostra só ele (os outros desaparecem)
+  const supplierMap = useMemo(() =>
+    selectedSupplier ? supplierMapAll.filter(([name]) => name === selectedSupplier) : supplierMapAll,
+    [supplierMapAll, selectedSupplier]);
 
-  const filteredCost = useMemo(() =>
-    filteredLocacoes.reduce((s, l) => s + hoursBilled(l.inicio, l.fim) * (l.valor_hora_brl || 0), 0),
-    [filteredLocacoes]);
+  const supplierTotal = useMemo(() =>
+    supplierMap.reduce((s, [, v]) => s + v, 0), [supplierMap]);
 
-  // ── Cards que respondem ao filtro ─────────────────────────────────────────
-  const byEquip = useMemo(() => {
+  const supplierBadgeCost = useMemo(() =>
+    supplierFilteredLocacoes.reduce((s: number, l: any) => s + hoursBilled(l.inicio, l.fim) * (l.valor_hora_brl || 0), 0),
+    [supplierFilteredLocacoes]);
+
+  // ── Custo por equipamento (responde ao filtro de fornecedor) ─────────────
+  const byEquipAll = useMemo(() => {
     const m = new Map<string, { cost: number; horas: number }>();
-    filteredLocacoes.forEach(l => {
+    supplierFilteredLocacoes.forEach((l: any) => {
       const h = hoursBilled(l.inicio, l.fim);
       const c = h * (l.valor_hora_brl || 0);
       const p = m.get(l.equipamento) || { cost: 0, horas: 0 };
@@ -172,15 +195,24 @@ const GerenciaDashboard: React.FC = () => {
     return Array.from(m.entries())
       .map(([name, v]) => ({ name, cost: +v.cost.toFixed(2), horas: v.horas }))
       .sort((a, b) => b.cost - a.cost);
-  }, [filteredLocacoes]);
+  }, [supplierFilteredLocacoes]);
 
-  const top10 = useMemo(() => [...byEquip].sort((a, b) => b.horas - a.horas).slice(0, 10), [byEquip]);
+  // Se equipamento selecionado: mostra só ele (os outros desaparecem)
+  const byEquip = useMemo(() =>
+    selectedEquipment ? byEquipAll.filter(e => e.name === selectedEquipment) : byEquipAll,
+    [byEquipAll, selectedEquipment]);
 
-  // filtro adicional por equipamento (aplicado sobre o filtro de fornecedor)
-  const dailyFilteredLocacoes = useMemo(() =>
-    selectedEquipment ? filteredLocacoes.filter(l => l.equipamento === selectedEquipment) : filteredLocacoes,
-    [filteredLocacoes, selectedEquipment]);
+  const top10All = useMemo(() => [...byEquipAll].sort((a, b) => b.horas - a.horas).slice(0, 10), [byEquipAll]);
 
+  const top10 = useMemo(() =>
+    selectedEquipment ? top10All.filter(e => e.name === selectedEquipment) : top10All,
+    [top10All, selectedEquipment]);
+
+  const equipBadgeCost = useMemo(() =>
+    equipmentFilteredLocacoes.reduce((s: number, l: any) => s + hoursBilled(l.inicio, l.fim) * (l.valor_hora_brl || 0), 0),
+    [equipmentFilteredLocacoes]);
+
+  // ── Análise diária (responde aos dois filtros) ────────────────────────────
   const dailyData = useMemo(() => {
     const days: string[] = [];
     const cur = new Date(startDate + 'T00:00:00'), end = new Date(endDate + 'T00:00:00');
@@ -189,11 +221,11 @@ const GerenciaDashboard: React.FC = () => {
     reports.forEach(r => {
       fm.set(r.data, (fm.get(r.data) || 0) + (r.voos || []).length);
     });
-    dailyFilteredLocacoes.forEach(l => {
+    fullyFilteredLocacoes.forEach((l: any) => {
       rm.set(l._date, (rm.get(l._date) || 0) + hoursBilled(l.inicio, l.fim));
     });
     return days.map(d => ({ date: fmtShortDate(d), 'Voos': fm.get(d) || 0, 'Locações (h)': rm.get(d) || 0 }));
-  }, [reports, dailyFilteredLocacoes, startDate, endDate]);
+  }, [reports, fullyFilteredLocacoes, startDate, endDate]);
 
   const maintRecords = useMemo(() =>
     fleetHistory.filter(h => h.status_novo === 'MANUTENCAO'), [fleetHistory]);
@@ -209,6 +241,7 @@ const GerenciaDashboard: React.FC = () => {
 
   const handleEquipmentClick = (data: any) => {
     setSelectedEquipment(prev => prev === data.name ? null : data.name);
+    setSelectedSupplier(null);
   };
 
   return (
@@ -237,7 +270,10 @@ const GerenciaDashboard: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444', flexShrink: 0, display: 'inline-block' }} />
-                <span style={{ fontSize: 16, fontWeight: 700, color: '#1E293B' }}>{expandedMaint.prefixo}</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: '#1E293B' }}>
+                  {equipNames.get(expandedMaint.prefixo) || expandedMaint.prefixo}
+                  <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400, marginLeft: 6 }}>({expandedMaint.prefixo})</span>
+                </span>
               </div>
               <button
                 onClick={() => setExpandedMaint(null)}
@@ -271,7 +307,7 @@ const GerenciaDashboard: React.FC = () => {
         <Pill label="Total Voos" value={String(totalFlights)} icon={<Plane size={16} />} />
         {selectedSupplier && (
           <button
-            onClick={() => { setSelectedSupplier(null); setSelectedEquipment(null); }}
+            onClick={() => setSelectedSupplier(null)}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
               background: SUPPLIER_COLORS[selectedSupplier] ?? '#1E293B',
@@ -279,7 +315,7 @@ const GerenciaDashboard: React.FC = () => {
               fontSize: 12, fontWeight: 600, cursor: 'pointer',
             }}
           >
-            {selectedSupplier} · {fmtBRL(filteredCost)} <X size={12} style={{ marginLeft: 2 }} />
+            {selectedSupplier} · {fmtBRL(supplierBadgeCost)} <X size={12} style={{ marginLeft: 2 }} />
           </button>
         )}
         {selectedEquipment && (
@@ -291,7 +327,7 @@ const GerenciaDashboard: React.FC = () => {
               padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
             }}
           >
-            {selectedEquipment} <X size={12} style={{ marginLeft: 2 }} />
+            {selectedEquipment} · {fmtBRL(equipBadgeCost)} <X size={12} style={{ marginLeft: 2 }} />
           </button>
         )}
         <div ref={pickerRef} style={{ position: 'relative', marginLeft: 'auto' }}>
@@ -330,63 +366,48 @@ const GerenciaDashboard: React.FC = () => {
               <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden' }}>
                 <DonutChart
                   segments={supplierMap}
-                  total={totalCost}
-                  label={fmtBRL(selectedSupplier ? (supplierMap.find(([n]) => n === selectedSupplier)?.[1] ?? 0) : totalCost)}
-                  selectedName={selectedSupplier}
+                  total={supplierTotal}
+                  label={fmtBRL(supplierTotal)}
                   onSelect={handleSupplierClick}
                 />
                 <div style={{ width: '100%', overflowY: 'auto', flex: 1, minHeight: 0 }}>
-                  {supplierMap.map(([name, cost], i) => {
-                    const isSelected = selectedSupplier === name;
-                    const isDimmed = selectedSupplier !== null && !isSelected;
-                    return (
-                      <div
-                        key={name}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          padding: '5px 6px', borderTop: i === 0 ? 'none' : '1px solid #F1F5F9',
-                          borderRadius: 6,
-                          background: isSelected ? '#F8FAFC' : 'transparent',
-                          opacity: isDimmed ? 0.4 : 1,
-                          transition: 'opacity 0.2s ease, background 0.15s ease',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: SUPPLIER_COLORS[name] ?? '#94A3B8', flexShrink: 0 }} />
-                          <span style={{ fontSize: 12, color: '#1E293B', fontWeight: isSelected ? 700 : 500 }}>{name}</span>
-                        </div>
-                        <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>{fmtBRL(cost)}</span>
+                  {supplierMap.map(([name, cost], i) => (
+                    <div
+                      key={name}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '5px 6px', borderTop: i === 0 ? 'none' : '1px solid #F1F5F9', borderRadius: 6,
+                        background: selectedSupplier === name ? '#F8FAFC' : 'transparent',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: SUPPLIER_COLORS[name] ?? '#94A3B8', flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, color: '#1E293B', fontWeight: selectedSupplier === name ? 700 : 500 }}>{name}</span>
                       </div>
-                    );
-                  })}
+                      <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>{fmtBRL(cost)}</span>
+                    </div>
+                  ))}
                   {supplierMap.length === 0 && <p style={{ textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>Nenhuma locação</p>}
                 </div>
               </div>
             </div>
 
             {/* Custo por Equipamento */}
-            <ChartCard title={`Custo por Equipamento (R$)${selectedSupplier ? ` · ${selectedSupplier}` : ''}`}>
+            <ChartCard title="Custo por Equipamento (R$)">
               {byEquip.length === 0 ? (
                 <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <p style={{ color: '#94A3B8', fontSize: 13 }}>Nenhuma locação</p>
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={byEquip} margin={{ left: 0, right: 8, top: 28, bottom: 40 }}>
+                  <BarChart data={byEquip} margin={{ left: 0, right: 8, top: 20, bottom: 40 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
                     <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#64748B' }} angle={-35} textAnchor="end" interval={0} />
                     <YAxis tick={{ fontSize: 9, fill: '#64748B' }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} width={36} />
                     <Tooltip content={<ChartTooltip />} />
                     <Bar dataKey="cost" name="R$ Custo" radius={[4, 4, 0, 0]} onClick={handleEquipmentClick} style={{ cursor: 'pointer' }}>
-                      <LabelList
-                        dataKey="cost"
-                        position="insideTop"
-                        formatter={(v: number) => fmtBRL(v)}
-                        style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }}
-                      />
-                      {byEquip.map((entry, i) => (
-                        <Cell key={i} fill={selectedEquipment === entry.name ? '#EF4444' : (i === 0 && !selectedEquipment ? '#EF4444' : '#1E293B')} opacity={selectedEquipment && selectedEquipment !== entry.name ? 0.35 : 1} />
-                      ))}
+                      <LabelList dataKey="cost" position="insideTop" formatter={(v: number) => fmtBRL(v)} style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }} />
+                      {byEquip.map((_, i) => <Cell key={i} fill={i === 0 ? '#EF4444' : '#1E293B'} />)}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -394,7 +415,7 @@ const GerenciaDashboard: React.FC = () => {
             </ChartCard>
 
             {/* Top 10 */}
-            <ChartCard title={`Top 10 Mais Locados (horas)${selectedSupplier ? ` · ${selectedSupplier}` : ''}`}>
+            <ChartCard title="Top 10 Mais Locados (horas)">
               {top10.length === 0 ? (
                 <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <p style={{ color: '#94A3B8', fontSize: 13 }}>Nenhuma locação</p>
@@ -408,9 +429,7 @@ const GerenciaDashboard: React.FC = () => {
                     <Tooltip content={<ChartTooltip />} />
                     <Bar dataKey="horas" name="Horas" radius={[0, 4, 4, 0]} onClick={handleEquipmentClick} style={{ cursor: 'pointer' }}>
                       <LabelList dataKey="horas" position="insideRight" formatter={(v: number) => `${v}h`} style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }} />
-                      {top10.map((entry, i) => (
-                        <Cell key={i} fill={selectedEquipment === entry.name ? '#EF4444' : (i === 0 && !selectedEquipment ? '#EF4444' : '#1E293B')} opacity={selectedEquipment && selectedEquipment !== entry.name ? 0.35 : 1} />
-                      ))}
+                      {top10.map((_, i) => <Cell key={i} fill={i === 0 ? '#EF4444' : '#1E293B'} />)}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -422,7 +441,7 @@ const GerenciaDashboard: React.FC = () => {
           <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 12 }}>
 
             {/* Voos × Locações */}
-            <ChartCard title={`Análise: Voos × Locações${selectedSupplier ? ` · ${selectedSupplier}` : ''}`}>
+            <ChartCard title="Análise: Voos × Locações">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={dailyData} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
@@ -463,7 +482,7 @@ const GerenciaDashboard: React.FC = () => {
                   <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
                     <thead style={{ position: 'sticky', top: 0 }}>
                       <tr>
-                        {['Equip.', 'Líder', 'Data / Turno', 'Defeito'].map(h => (
+                        {['Nome', 'Líder', 'Data / Turno', 'Defeito'].map(h => (
                           <th key={h} style={{ ...tableStyles.th, textAlign: 'left', fontSize: 10 }}>{h}</th>
                         ))}
                       </tr>
@@ -480,7 +499,7 @@ const GerenciaDashboard: React.FC = () => {
                           <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                               <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#EF4444', flexShrink: 0 }} />
-                              {r.prefixo}
+                              {equipNames.get(r.prefixo) || r.prefixo}
                             </span>
                           </td>
                           <td style={{ ...tableStyles.td, fontSize: 11, padding: '6px 8px', color: '#475569', whiteSpace: 'nowrap', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis' }}>
