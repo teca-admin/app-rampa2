@@ -26,7 +26,8 @@ const DonutChart: React.FC<{
   total: number;
   label: string;
   selectedName?: string | null;
-}> = ({ segments, total, label, selectedName }) => {
+  onSelect?: (name: string) => void;
+}> = ({ segments, total, label, selectedName, onSelect }) => {
   const r = 72; const circ = 2 * Math.PI * r;
   let cumulative = 0;
   return (
@@ -45,7 +46,8 @@ const DonutChart: React.FC<{
               strokeDashoffset={offset}
               strokeLinecap="butt"
               opacity={selectedName && name !== selectedName ? 0.2 : 1}
-              style={{ transition: 'opacity 0.25s ease' }} />
+              onClick={() => onSelect?.(name)}
+              style={{ cursor: 'pointer', transition: 'opacity 0.25s ease' }} />
           );
         })}
         <text x={90} y={84} textAnchor="middle" fill="#64748B" fontSize={12} fontFamily="Inter,sans-serif">
@@ -93,6 +95,7 @@ const GerenciaDashboard: React.FC = () => {
   const [fleetHistory, setFleetHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
+  const [selectedEquipment, setSelectedEquipment] = useState<string | null>(null);
   const [expandedMaint, setExpandedMaint] = useState<any | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
@@ -173,6 +176,11 @@ const GerenciaDashboard: React.FC = () => {
 
   const top10 = useMemo(() => [...byEquip].sort((a, b) => b.horas - a.horas).slice(0, 10), [byEquip]);
 
+  // filtro adicional por equipamento (aplicado sobre o filtro de fornecedor)
+  const dailyFilteredLocacoes = useMemo(() =>
+    selectedEquipment ? filteredLocacoes.filter(l => l.equipamento === selectedEquipment) : filteredLocacoes,
+    [filteredLocacoes, selectedEquipment]);
+
   const dailyData = useMemo(() => {
     const days: string[] = [];
     const cur = new Date(startDate + 'T00:00:00'), end = new Date(endDate + 'T00:00:00');
@@ -181,11 +189,11 @@ const GerenciaDashboard: React.FC = () => {
     reports.forEach(r => {
       fm.set(r.data, (fm.get(r.data) || 0) + (r.voos || []).length);
     });
-    filteredLocacoes.forEach(l => {
+    dailyFilteredLocacoes.forEach(l => {
       rm.set(l._date, (rm.get(l._date) || 0) + hoursBilled(l.inicio, l.fim));
     });
     return days.map(d => ({ date: fmtShortDate(d), 'Voos': fm.get(d) || 0, 'Locações (h)': rm.get(d) || 0 }));
-  }, [reports, filteredLocacoes, startDate, endDate]);
+  }, [reports, dailyFilteredLocacoes, startDate, endDate]);
 
   const maintRecords = useMemo(() =>
     fleetHistory.filter(h => h.status_novo === 'MANUTENCAO'), [fleetHistory]);
@@ -196,6 +204,11 @@ const GerenciaDashboard: React.FC = () => {
 
   const handleSupplierClick = (name: string) => {
     setSelectedSupplier(prev => prev === name ? null : name);
+    setSelectedEquipment(null);
+  };
+
+  const handleEquipmentClick = (data: any) => {
+    setSelectedEquipment(prev => prev === data.name ? null : data.name);
   };
 
   return (
@@ -258,7 +271,7 @@ const GerenciaDashboard: React.FC = () => {
         <Pill label="Total Voos" value={String(totalFlights)} icon={<Plane size={16} />} />
         {selectedSupplier && (
           <button
-            onClick={() => setSelectedSupplier(null)}
+            onClick={() => { setSelectedSupplier(null); setSelectedEquipment(null); }}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
               background: SUPPLIER_COLORS[selectedSupplier] ?? '#1E293B',
@@ -267,6 +280,18 @@ const GerenciaDashboard: React.FC = () => {
             }}
           >
             {selectedSupplier} · {fmtBRL(filteredCost)} <X size={12} style={{ marginLeft: 2 }} />
+          </button>
+        )}
+        {selectedEquipment && (
+          <button
+            onClick={() => setSelectedEquipment(null)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: '#EF4444', color: '#fff', border: 'none', borderRadius: 20,
+              padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            {selectedEquipment} <X size={12} style={{ marginLeft: 2 }} />
           </button>
         )}
         <div ref={pickerRef} style={{ position: 'relative', marginLeft: 'auto' }}>
@@ -308,6 +333,7 @@ const GerenciaDashboard: React.FC = () => {
                   total={totalCost}
                   label={fmtBRL(selectedSupplier ? (supplierMap.find(([n]) => n === selectedSupplier)?.[1] ?? 0) : totalCost)}
                   selectedName={selectedSupplier}
+                  onSelect={handleSupplierClick}
                 />
                 <div style={{ width: '100%', overflowY: 'auto', flex: 1, minHeight: 0 }}>
                   {supplierMap.map(([name, cost], i) => {
@@ -316,11 +342,10 @@ const GerenciaDashboard: React.FC = () => {
                     return (
                       <div
                         key={name}
-                        onClick={() => handleSupplierClick(name)}
                         style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                           padding: '5px 6px', borderTop: i === 0 ? 'none' : '1px solid #F1F5F9',
-                          cursor: 'pointer', borderRadius: 6,
+                          borderRadius: 6,
                           background: isSelected ? '#F8FAFC' : 'transparent',
                           opacity: isDimmed ? 0.4 : 1,
                           transition: 'opacity 0.2s ease, background 0.15s ease',
@@ -352,14 +377,16 @@ const GerenciaDashboard: React.FC = () => {
                     <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#64748B' }} angle={-35} textAnchor="end" interval={0} />
                     <YAxis tick={{ fontSize: 9, fill: '#64748B' }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} width={36} />
                     <Tooltip content={<ChartTooltip />} />
-                    <Bar dataKey="cost" name="R$ Custo" radius={[4, 4, 0, 0]}>
+                    <Bar dataKey="cost" name="R$ Custo" radius={[4, 4, 0, 0]} onClick={handleEquipmentClick} style={{ cursor: 'pointer' }}>
                       <LabelList
                         dataKey="cost"
-                        position="top"
+                        position="insideTop"
                         formatter={(v: number) => fmtBRL(v)}
-                        style={{ fontSize: 9, fill: '#475569', fontWeight: 600 }}
+                        style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }}
                       />
-                      {byEquip.map((_, i) => <Cell key={i} fill={i === 0 ? '#EF4444' : '#1E293B'} />)}
+                      {byEquip.map((entry, i) => (
+                        <Cell key={i} fill={selectedEquipment === entry.name ? '#EF4444' : (i === 0 && !selectedEquipment ? '#EF4444' : '#1E293B')} opacity={selectedEquipment && selectedEquipment !== entry.name ? 0.35 : 1} />
+                      ))}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -379,9 +406,11 @@ const GerenciaDashboard: React.FC = () => {
                     <XAxis type="number" tick={{ fontSize: 9, fill: '#64748B' }} allowDecimals={false} />
                     <YAxis dataKey="name" type="category" tick={{ fontSize: 9, fill: '#64748B' }} width={80} />
                     <Tooltip content={<ChartTooltip />} />
-                    <Bar dataKey="horas" name="Horas" radius={[0, 4, 4, 0]}>
+                    <Bar dataKey="horas" name="Horas" radius={[0, 4, 4, 0]} onClick={handleEquipmentClick} style={{ cursor: 'pointer' }}>
                       <LabelList dataKey="horas" position="insideRight" formatter={(v: number) => `${v}h`} style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }} />
-                      {top10.map((_, i) => <Cell key={i} fill={i === 0 ? '#EF4444' : '#1E293B'} />)}
+                      {top10.map((entry, i) => (
+                        <Cell key={i} fill={selectedEquipment === entry.name ? '#EF4444' : (i === 0 && !selectedEquipment ? '#EF4444' : '#1E293B')} opacity={selectedEquipment && selectedEquipment !== entry.name ? 0.35 : 1} />
+                      ))}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
