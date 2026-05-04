@@ -194,7 +194,7 @@ const GerenciaDashboard: React.FC = () => {
                   {supplierMap.map(([name, cost], i) => (
                     <div key={name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '3px 0', borderTop: i === 0 ? 'none' : '1px solid #F1F5F9' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: i === 0 ? '#1E293B' : '#EF4444', flexShrink: 0 }} />
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: ({ 'Dnata': '#1E293B', 'Pro Air': '#EF4444', 'AeroSky': '#CBD5E1', 'Gol': '#FF6F1F' } as Record<string, string>)[name] ?? '#94A3B8', flexShrink: 0 }} />
                         <span style={{ fontSize: 12, color: '#1E293B', fontWeight: 500 }}>{name}</span>
                       </div>
                       <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>{fmtBRL(cost)}</span>
