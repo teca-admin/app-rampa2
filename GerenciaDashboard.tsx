@@ -92,7 +92,7 @@ const GerenciaDashboard: React.FC = () => {
         .select('data, locacoes, voos')
         .gte('data', startDate).lte('data', endDate).order('data'),
       supabase.from('historico_status_equipamentos')
-        .select('prefixo, status_novo, data, turno, lider, motivo')
+        .select('prefixo, status_novo, data, turno, motivo')
         .gte('data', startDate).lte('data', endDate).order('data'),
     ]);
     setReports(reps || []);
