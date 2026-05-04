@@ -12,17 +12,35 @@ import {
   ChartTooltip, DateRangePicker, tableStyles,
 } from './DashboardUtils';
 
+// ─── Cores por fornecedor ─────────────────────────────────────────────────────
+const SUPPLIER_COLORS: Record<string, string> = {
+  'Dnata':    '#1E293B',
+  'Pro Air':  '#EF4444',
+  'AeroSky':  '#CBD5E1',
+  'Gol':      '#FF6F1F',
+};
+
 // ─── Donut SVG ────────────────────────────────────────────────────────────────
-const DonutChart: React.FC<{ pct: number; label: string }> = ({ pct, label }) => {
+const DonutChart: React.FC<{ segments: [string, number][]; total: number; label: string }> = ({ segments, total, label }) => {
   const r = 72; const circ = 2 * Math.PI * r;
+  let cumulative = 0;
   return (
     <div style={{ width: 180, height: 180, flexShrink: 0, margin: '0 auto' }}>
       <svg width={180} height={180} viewBox="0 0 180 180">
         <circle cx={90} cy={90} r={r} fill="none" stroke="#E2E8F0" strokeWidth={26} />
-        <circle cx={90} cy={90} r={r} fill="none" stroke="#1E293B" strokeWidth={26}
-          strokeDasharray={`${circ * pct} ${circ * (1 - pct)}`}
-          strokeDashoffset={circ * 0.25} strokeLinecap="butt"
-          style={{ transition: 'stroke-dasharray 0.5s ease' }} />
+        {segments.map(([name, value]) => {
+          const segLen = circ * (value / (total || 1));
+          const offset = circ * 0.25 - cumulative;
+          cumulative += segLen;
+          return (
+            <circle key={name} cx={90} cy={90} r={r} fill="none"
+              stroke={SUPPLIER_COLORS[name] ?? '#94A3B8'}
+              strokeWidth={26}
+              strokeDasharray={`${segLen} ${circ - segLen}`}
+              strokeDashoffset={offset}
+              strokeLinecap="butt" />
+          );
+        })}
         <text x={90} y={84} textAnchor="middle" fill="#64748B" fontSize={12} fontFamily="Inter,sans-serif">Total</text>
         <text x={90} y={104} textAnchor="middle" fill="#1E293B" fontSize={16} fontWeight={700} fontFamily="Inter,sans-serif">{label}</text>
       </svg>
@@ -189,12 +207,12 @@ const GerenciaDashboard: React.FC = () => {
             }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#1E293B', margin: '0 0 6px', flexShrink: 0 }}>Custo por Fornecedor</p>
               <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden' }}>
-                <DonutChart pct={supplierMap.length ? supplierMap[0][1] / (totalCost || 1) : 0} label={fmtBRL(totalCost)} />
+                <DonutChart segments={supplierMap} total={totalCost} label={fmtBRL(totalCost)} />
                 <div style={{ width: '100%', overflowY: 'auto', flex: 1, minHeight: 0 }}>
                   {supplierMap.map(([name, cost], i) => (
                     <div key={name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '3px 0', borderTop: i === 0 ? 'none' : '1px solid #F1F5F9' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: ({ 'Dnata': '#1E293B', 'Pro Air': '#EF4444', 'AeroSky': '#CBD5E1', 'Gol': '#FF6F1F' } as Record<string, string>)[name] ?? '#94A3B8', flexShrink: 0 }} />
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: SUPPLIER_COLORS[name] ?? '#94A3B8', flexShrink: 0 }} />
                         <span style={{ fontSize: 12, color: '#1E293B', fontWeight: 500 }}>{name}</span>
                       </div>
                       <span style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>{fmtBRL(cost)}</span>
