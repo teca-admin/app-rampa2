@@ -12,7 +12,7 @@ import GerenciaDashboard from './GerenciaDashboard';
 import CoordDashboard from './CoordDashboard';
 
 // --- CONFIG ---
-const WEBHOOK_URL = 'https://teca-admin-n8n.ly7t0m.easypanel.host/webhook/e4eb976b-e3b7-40e7-b069-56c3162c9f70';
+const WEBHOOK_URL = 'https://teca-admin-n8n.gf4wga.easypanel.host/webhook/e4eb976b-e3b7-40e7-b069-56c3162c9f70';
 
 // --- HELPERS ---
 const getLocalDateString = () => {
