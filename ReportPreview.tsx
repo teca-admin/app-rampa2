@@ -2,9 +2,17 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Send, Copy, CheckCircle } from 'lucide-react';
 
-// Link de convite do grupo, usado so como plano B: link de grupo NAO aceita
-// texto pre-preenchido, entao o envio normal vai pelo wa.me com a mensagem pronta.
-const GROUP_LINK = 'https://chat.whatsapp.com/FQQo2cidpp50lref3VS3hu';
+// Grupo "Lideres de Operacoes", conferido em 24/08/2026 consultando o proprio
+// link (a pagina do convite devolve o nome do grupo em og:title). Ate esta data
+// o codigo apontava para um grupo de TESTE chamado "Tanto faz", e ninguem tinha
+// percebido porque quem enviava a mensagem era o n8n, nao o app.
+//
+// Tem que ser o link de CONVITE, nao o id interno do grupo (@g.us): id so
+// funciona por API, que e exatamente o que saiu daqui.
+//
+// Ao trocar de grupo, confira para onde o link novo aponta antes de subir:
+//   curl -s <link> | grep og:title
+const GROUP_LINK = 'https://chat.whatsapp.com/BcOXC3K7h8M1vgzX1FU5OH';
 
 // Abre o WhatsApp com a mensagem ja digitada. Se o navegador bloquear a aba nova
 // (acontece depois de um await), navega na propria aba em vez de falhar calado.
