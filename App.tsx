@@ -8,11 +8,10 @@ import { FleetStat } from './types';
 
 // Subcomponentes
 import NewReportTab from './NewReportTab';
+import ReportPreview from './ReportPreview';
+import { ToastProvider, useToast, SuccessScreen } from './CustomToast';
 import GerenciaDashboard from './GerenciaDashboard';
 import CoordDashboard from './CoordDashboard';
-
-// --- CONFIG ---
-const WEBHOOK_URL = 'https://teca-admin-n8n.gf4wga.easypanel.host/webhook/e4eb976b-e3b7-40e7-b069-56c3162c9f70';
 
 // --- HELPERS ---
 const getLocalDateString = () => {
@@ -31,7 +30,8 @@ const fetchUsdToBrl = async (): Promise<number> => {
   }
 };
 
-const App: React.FC = () => {
+const AppInner: React.FC = () => {
+  const { toast } = useToast();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -98,6 +98,10 @@ const App: React.FC = () => {
   const [formBriefing, setFormBriefing] = useState({ ativo: false, inicio: '', fim: '' });
   const [formDebriefing, setFormDebriefing] = useState({ ativo: false, inicio: '', fim: '' });
 
+  // Fluxo do envio: formulário -> prévia -> sucesso. Nada é gravado antes da confirmação.
+  const [mobileScreen, setMobileScreen] = useState<'form' | 'preview' | 'success'>('form');
+  const [reportPayload, setReportPayload] = useState<any>(null);
+
   // Regra de data automática: se o turno não for madrugada, reseta para hoje
   useEffect(() => {
     if (formShift !== 'madrugada') {
@@ -144,18 +148,19 @@ const App: React.FC = () => {
 
   const handleAddAirline = useCallback(async (nome: string) => {
     const { error } = await supabase.from('companhias_aereas').insert({ nome });
-    if (error) { alert('Erro ao cadastrar: ' + error.message); return; }
+    if (error) { toast('Erro ao cadastrar: ' + error.message, 'error'); return; }
     fetchData(true);
   }, [fetchData]);
 
   const handleAddEquipamento = useCallback(async (prefixo: string, nome: string) => {
     const { error } = await supabase.from('equipamentos').insert({ prefixo, nome, status: 'OPERACIONAL' });
-    if (error) { alert('Erro ao cadastrar: ' + error.message); return; }
+    if (error) { toast('Erro ao cadastrar: ' + error.message, 'error'); return; }
     fetchData(true);
   }, [fetchData]);
 
-  const handleSaveReport = async () => {
-    if (!formLeader) { alert("Selecione o Líder!"); return; }
+  // PASSO 1: monta o payload e vai para a prévia. Nada é gravado aqui.
+  const handleGoToPreview = async () => {
+    if (!formLeader) { toast('Selecione o Líder!', 'warning'); return; }
     setIsSubmitting(true);
     try {
       // Buscar cotação do dólar para registros com fornecedor Gol
@@ -204,7 +209,7 @@ const App: React.FC = () => {
         };
       });
 
-      const reportPayload = {
+      const payload = {
         data: formDate,
         turno: formShift === 'manha' ? 'manhã' : formShift,
         lider: formLeader,
@@ -233,6 +238,21 @@ const App: React.FC = () => {
         debriefing_fim: formDebriefing.ativo ? (formDebriefing.fim || null) : null,
       };
 
+      setReportPayload(payload);
+      setMobileScreen('preview');
+    } catch (err: any) {
+      toast(err.message || 'Erro ao montar o relatório', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // PASSO 2: só agora grava. Devolve true se gravou, para a prévia saber se pode
+  // abrir o WhatsApp. Se o banco falhar, o líder continua na prévia e tenta de novo.
+  const handleConfirmSend = async (): Promise<boolean> => {
+    if (!reportPayload) return false;
+    setIsSubmitting(true);
+    try {
       const { error } = await supabase.from('relatorios_consolidados').insert([reportPayload]);
       if (error) throw error;
 
@@ -262,16 +282,23 @@ const App: React.FC = () => {
         );
       }
 
-      await fetch(WEBHOOK_URL, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reportPayload) 
-      }).catch(console.error);
+      setMobileScreen('success');
+      fetchData(true);
+      return true;
+    } catch (err: any) {
+      toast(err.message || 'Erro ao salvar o relatório', 'error');
+      return false;
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
-      alert("Relatório Enviado com Sucesso!"); 
-      resetForm(); 
-      fetchData();
-    } catch (err: any) { alert(err.message); } finally { setIsSubmitting(false); }
+  const handleBackToForm = () => setMobileScreen('form');
+
+  const handleSuccessClose = () => {
+    resetForm();
+    setReportPayload(null);
+    setMobileScreen('form');
   };
 
   const themeClasses = {
@@ -373,12 +400,19 @@ const App: React.FC = () => {
 
       <main className={`flex-1 overflow-hidden${isMobile ? ' p-3 max-w-[1200px] mx-auto w-full' : ''}`}>
         {isMobile ? (
-          // Mobile: sempre o formulário de relatório
+          // Mobile: formulário -> prévia -> sucesso (a de sucesso é tela cheia)
           loading ? (
             <div className="h-full flex flex-col items-center justify-center opacity-20">
               <RefreshCcw size={48} className="animate-spin text-blue-500 mb-4" />
               <p className="font-black uppercase italic tracking-widest">Sincronizando Dados...</p>
             </div>
+          ) : mobileScreen === 'preview' && reportPayload ? (
+            <ReportPreview
+              reportPayload={reportPayload}
+              onBack={handleBackToForm}
+              onConfirmSend={handleConfirmSend}
+              isSubmitting={isSubmitting}
+            />
           ) : (
             <NewReportTab
               themeClasses={themeClasses}
@@ -411,7 +445,7 @@ const App: React.FC = () => {
               handleTransporteChange={(i, f, v) => { const u = [...formTransporte]; (u[i] as any)[f] = v; setFormTransporte(u); }}
               fleetDetails={fleetDetails}
               isSubmitting={isSubmitting}
-              handleSaveReport={handleSaveReport}
+              handleSaveReport={handleGoToPreview}
               resetForm={resetForm}
               setActiveTab={() => {}}
               handleAddAirline={handleAddAirline}
@@ -427,10 +461,18 @@ const App: React.FC = () => {
       </main>
 
       <footer className={`flex-none ${isDarkMode ? 'bg-[#0f172a] border-white/10' : 'bg-white border-slate-200'} border-t px-6 py-2 flex justify-center items-center text-[8px] font-black uppercase ${themeClasses.textMuted} italic transition-colors duration-300`}>
-        <span>RAMP CONTROLL STABLE V17.0 - PWA MODE</span>
+        <span>RAMP CONTROLL STABLE V18.0 - PWA MODE</span>
       </footer>
+
+      <SuccessScreen open={mobileScreen === 'success'} onClose={handleSuccessClose} />
     </div>
   );
 };
+
+const App: React.FC = () => (
+  <ToastProvider>
+    <AppInner />
+  </ToastProvider>
+);
 
 export default App;

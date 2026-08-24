@@ -5,12 +5,21 @@ import {
   ResponsiveContainer, Cell,
 } from 'recharts';
 import { supabase } from './supabase';
-import { DollarSign, Clock, Plane, Calendar, X } from 'lucide-react';
+import { DollarSign, Clock, Plane, Calendar, X, TrendingUp, Scale, AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import {
-  hoursBilled, fmtBRL, fmtShortDate, fmtFullDate,
-  todayStr, firstDayOfCurrentMonth,
+  hoursBilled, calcMinutes, fmtBRL, fmtShortDate, fmtFullDate,
+  todayStr, firstDayOfCurrentMonth, shiftLabel,
   ChartTooltip, DateRangePicker, tableStyles,
 } from './DashboardUtils';
+
+// Dias entre duas datas no formato YYYY-MM-DD
+const diasEntre = (de: string, ate: string): number => {
+  const a = new Date(de + 'T00:00:00').getTime();
+  const b = new Date(ate + 'T00:00:00').getTime();
+  return Math.max(0, Math.round((b - a) / 86400000));
+};
+
+const plural = (n: number, um: string, muitos: string) => `${n} ${n === 1 ? um : muitos}`;
 
 // ─── Cores por fornecedor ─────────────────────────────────────────────────────
 const SUPPLIER_COLORS: Record<string, string> = {
@@ -55,6 +64,195 @@ const DonutChart: React.FC<{
   );
 };
 
+// ─── Rótulos que não somem ───────────────────────────────────────────────────
+// Rótulo posicionado dentro da barra desaparece quando a barra é curta, que é
+// justamente quando o número é difícil de estimar no olho. Estes medem a barra:
+// se o texto não couber dentro, ele sai pra fora e troca de cor.
+const RotuloVertical: React.FC<any> = ({ x, y, width, height, value, formatar }) => {
+  if (value === 0 || value === null || value === undefined) return null;
+  const texto = formatar ? formatar(value) : String(value);
+  const cabeDentro = height >= 24;
+  return (
+    <text
+      x={x + width / 2}
+      y={cabeDentro ? y + 15 : y - 6}
+      textAnchor="middle"
+      fill={cabeDentro ? '#fff' : '#1E293B'}
+      fontSize={11}
+      fontWeight={700}
+      style={{ pointerEvents: 'none' }}
+    >
+      {texto}
+    </text>
+  );
+};
+
+const RotuloHorizontal: React.FC<any> = ({ x, y, width, height, value, formatar }) => {
+  if (value === 0 || value === null || value === undefined) return null;
+  const texto = formatar ? formatar(value) : String(value);
+  const cabeDentro = width >= texto.length * 7 + 16;
+  return (
+    <text
+      x={cabeDentro ? x + width - 8 : x + width + 6}
+      y={y + height / 2}
+      dominantBaseline="central"
+      textAnchor={cabeDentro ? 'end' : 'start'}
+      fill={cabeDentro ? '#fff' : '#1E293B'}
+      fontSize={11}
+      fontWeight={700}
+      style={{ pointerEvents: 'none' }}
+    >
+      {texto}
+    </text>
+  );
+};
+
+// ─── Meio painel financeiro ──────────────────────────────────────────────────
+// Receita e Custo leem igual de propósito: mesma barra por dia à esquerda e a
+// mesma lista por equipamento à direita, mudando só a cor e o sinal. Assim o
+// gerente compara os dois lados sem reaprender a tela no meio do caminho.
+const PainelFinanceiro: React.FC<{
+  titulo: string;
+  subtitulo: string;
+  cor: string;
+  corFraca: string;
+  total: number;
+  serie: any[];
+  chaveSerie: string;
+  linhas: { nome: string; horas: number; valor: number; detalhe: string; alerta: boolean }[];
+}> = ({ titulo, subtitulo, cor, corFraca, total, serie, chaveSerie, linhas }) => (
+  // A tabela ficava larga demais: o nome do equipamento é curto e sobrava um
+  // vão morto antes de Horas e Total. Encolhendo esta coluna, os números vêm
+  // pra perto do nome e a largura que sobra vai pro card de Combustível.
+  <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+
+    <div style={{
+      background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.07)', padding: '12px 14px',
+      display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexShrink: 0, marginBottom: 2 }}>
+        <span style={{ fontSize: 14, fontWeight: 700, color: cor }}>{titulo}</span>
+        <span style={{ fontSize: 18, fontWeight: 700, color: '#1E293B' }}>{fmtBRL(total)}</span>
+        <span style={{ fontSize: 11, color: '#94A3B8' }}>{subtitulo}</span>
+      </div>
+      <p style={{ margin: '0 0 6px', fontSize: 10, color: '#94A3B8', flexShrink: 0 }}>
+        Quantidade por dia. Passe o mouse para ver o valor do dia.
+      </p>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={serie} margin={{ left: 0, right: 12, top: 20, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+            <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#64748B' }} interval={0} />
+            <YAxis tick={{ fontSize: 9, fill: '#64748B' }} allowDecimals={false} width={24} />
+            <Tooltip
+              cursor={{ fill: '#F8FAFC' }}
+              content={({ active, payload, label }: any) => {
+                if (!active || !payload || !payload.length) return null;
+                const p = payload[0].payload;
+                return (
+                  <div style={{
+                    background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8,
+                    padding: '8px 12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                  }}>
+                    <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#1E293B' }}>{label}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748B' }}>
+                      {plural(p[chaveSerie], chaveSerie === 'Locações' ? 'locação' : 'alocação',
+                        chaveSerie === 'Locações' ? 'locações' : 'alocações')}
+                    </p>
+                    <p style={{ margin: '2px 0 0', fontSize: 13, fontWeight: 700, color: cor }}>
+                      {fmtBRL(p._valor)}
+                    </p>
+                  </div>
+                );
+              }}
+            />
+            <Bar dataKey={chaveSerie} fill={cor} radius={[4, 4, 0, 0]}>
+              <LabelList dataKey={chaveSerie} content={<RotuloVertical />} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+
+    <div style={{
+      background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.07)', padding: '12px 14px',
+      display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden',
+    }}>
+      <p style={{ fontSize: 13, fontWeight: 600, color: '#1E293B', margin: '0 0 2px', flexShrink: 0 }}>
+        {titulo} por Equipamento
+      </p>
+      <p style={{ margin: '0 0 8px', fontSize: 10, color: '#94A3B8', flexShrink: 0 }}>
+        Hora cheia: 1 minuto usado já conta 1 hora
+      </p>
+      {linhas.length === 0 ? (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <p style={{ color: '#94A3B8', fontSize: 13 }}>Nada no período</p>
+        </div>
+      ) : (
+        <div className="rolagem-fina" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
+            <thead style={{ position: 'sticky', top: 0 }}>
+              <tr>
+                {['Equipamento', 'Horas', 'Total'].map(h => (
+                  <th
+                    key={h}
+                    style={{
+                      ...tableStyles.th, fontSize: 10,
+                      textAlign: h === 'Equipamento' ? 'left' : 'right',
+                      // Sem largura fixa nas duas últimas, a primeira estica e
+                      // empurra os números pro canto direito da tela.
+                      width: h === 'Equipamento' ? 'auto' : (h === 'Horas' ? 52 : 96),
+                      whiteSpace: 'nowrap',
+                    }}
+                  >{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {linhas.map((l, i) => (
+                <tr key={l.nome} style={{ background: i % 2 === 0 ? '#fff' : '#F8FAFC' }}>
+                  <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: cor, flexShrink: 0 }} />
+                      {l.nome}
+                    </span>
+                    {l.detalhe && (
+                      <span style={{
+                        marginLeft: 5, fontSize: 10, fontWeight: 600,
+                        color: l.alerta ? '#B45309' : '#94A3B8',
+                        background: l.alerta ? '#FFFBEB' : 'transparent',
+                        borderRadius: 20, padding: l.alerta ? '1px 6px' : 0,
+                      }}>
+                        {l.detalhe}
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569', textAlign: 'right' }}>{l.horas}h</td>
+                  <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', fontWeight: 700, color: '#1E293B', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {fmtBRL(l.valor)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={2} style={{ ...tableStyles.td, fontSize: 11, padding: '8px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', borderTop: '2px solid #E2E8F0' }}>
+                  Total
+                </td>
+                <td style={{ ...tableStyles.td, fontSize: 13, padding: '8px', fontWeight: 700, color: cor, textAlign: 'right', whiteSpace: 'nowrap', borderTop: '2px solid #E2E8F0', background: corFraca }}>
+                  {fmtBRL(total)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </div>
+  </div>
+);
+
 // ─── Compact KPI pill ─────────────────────────────────────────────────────────
 const Pill: React.FC<{ label: string; value: string; icon: React.ReactNode; accent?: boolean }> =
   ({ label, value, icon, accent }) => (
@@ -71,13 +269,18 @@ const Pill: React.FC<{ label: string; value: string; icon: React.ReactNode; acce
   );
 
 // ─── Chart card ──────────────────────────────────────────────────────────────
-const ChartCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+const ChartCard: React.FC<{ title: string; dica?: string; children: React.ReactNode }> = ({ title, dica, children }) => (
   <div style={{
     background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0',
     boxShadow: '0 1px 3px rgba(0,0,0,0.07)', padding: '12px 14px',
     display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden',
   }}>
-    <p style={{ fontSize: 13, fontWeight: 600, color: '#1E293B', margin: '0 0 8px', flexShrink: 0 }}>{title}</p>
+    <p style={{ fontSize: 13, fontWeight: 600, color: '#1E293B', margin: '0 0 8px', flexShrink: 0 }}>
+      {title}
+      {dica && (
+        <span style={{ fontSize: 11, fontWeight: 500, color: '#94A3B8', marginLeft: 8 }}>{dica}</span>
+      )}
+    </p>
     <div style={{ flex: 1, minHeight: 0 }}>{children}</div>
   </div>
 );
@@ -94,26 +297,59 @@ const GerenciaDashboard: React.FC = () => {
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
   const [selectedEquipment, setSelectedEquipment] = useState<string | null>(null);
   const [expandedMaint, setExpandedMaint] = useState<any | null>(null);
+  // O painel da Gerência é o dele: fica sempre à mostra, sem guia. O único
+  // desvio é Receita x Custos, que é assunto do gerente e não do dia a dia.
+  const [painel, setPainel] = useState<'locacoes' | 'receita'>('locacoes');
+  const [precosAlocacao, setPrecosAlocacao] = useState<Map<string, number>>(new Map());
+  const [combustivel, setCombustivel] = useState<any[]>([]);
+  const [formCombustivel, setFormCombustivel] = useState<null | { data: string; tipo: 'GASOLINA' | 'DIESEL'; litros: string }>(null);
+  const [salvandoCombustivel, setSalvandoCombustivel] = useState(false);
+  const [erroCombustivel, setErroCombustivel] = useState('');
+  const [excluirCombustivel, setExcluirCombustivel] = useState<any | null>(null);
+  const [abaManutencao, setAbaManutencao] = useState<'parados' | 'voltaram'>('parados');
+  const [diaDetalhe, setDiaDetalhe] = useState<string | null>(null);
+  const [equipStatus, setEquipStatus] = useState<Map<string, string>>(new Map());
   const pickerRef = useRef<HTMLDivElement>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [{ data: reps }, { data: hist, error: histError }, { data: equips }] = await Promise.all([
+    const [{ data: reps }, { data: hist, error: histError }, { data: equips }, { data: precos }, { data: comb }] = await Promise.all([
       supabase.from('relatorios_consolidados')
-        .select('data, locacoes, voos')
+        .select('data, turno, lider, locacoes, voos')
         .gte('data', startDate).lte('data', endDate).order('data'),
+      // Histórico SEM recorte de data de propósito: o retorno de um equipamento
+      // costuma cair fora do período escolhido, e sem ele não dá pra saber quem
+      // ainda está parado. O recorte é aplicado depois, na hora de exibir.
       supabase.from('historico_status_equipamentos')
-        .select('prefixo, status_novo, data, turno, lider, motivo')
-        .gte('data', startDate).lte('data', endDate).order('data'),
-      supabase.from('equipamentos').select('prefixo, nome'),
+        .select('prefixo, status_novo, data, turno, lider, motivo, registrado_em')
+        .order('data'),
+      supabase.from('equipamentos').select('prefixo, nome, status'),
+      // Preço do que NÓS alugamos para terceiros. A tabela pode ainda não
+      // existir no banco: nesse caso o painel mostra o que falta cadastrar
+      // em vez de quebrar.
+      supabase.from('tabela_precos_alocacao').select('equipamento, valor_hora'),
+      // Abastecimento é digitado à mão aqui na Gerência, não vem do relatório
+      // do líder. Segue o mesmo período escolhido no topo.
+      supabase.from('registros_combustivel')
+        .select('id, data, tipo, litros')
+        .gte('data', startDate).lte('data', endDate)
+        .order('data', { ascending: false }),
     ]);
     if (histError) console.error('[Manutenção] erro:', histError);
     setReports(reps || []);
     setFleetHistory(hist || []);
     if (equips) {
       const m = new Map<string, string>();
-      equips.forEach((e: any) => m.set(e.prefixo, e.nome));
+      const st = new Map<string, string>();
+      equips.forEach((e: any) => { m.set(e.prefixo, e.nome); st.set(e.prefixo, e.status); });
       setEquipNames(m);
+      setEquipStatus(st);
+    }
+    setCombustivel(comb || []);
+    if (precos) {
+      const pm = new Map<string, number>();
+      precos.forEach((r: any) => pm.set(r.equipamento, Number(r.valor_hora) || 0));
+      setPrecosAlocacao(pm);
     }
     setLoading(false);
   }, [startDate, endDate]);
@@ -224,11 +460,211 @@ const GerenciaDashboard: React.FC = () => {
     fullyFilteredLocacoes.forEach((l: any) => {
       rm.set(l._date, (rm.get(l._date) || 0) + hoursBilled(l.inicio, l.fim));
     });
-    return days.map(d => ({ date: fmtShortDate(d), 'Voos': fm.get(d) || 0, 'Locações (h)': rm.get(d) || 0 }));
+    return days.map(d => ({ date: fmtShortDate(d), _iso: d, 'Voos': fm.get(d) || 0, 'Locações (h)': rm.get(d) || 0 }));
   }, [reports, fullyFilteredLocacoes, startDate, endDate]);
 
-  const maintRecords = useMemo(() =>
-    fleetHistory.filter(h => h.status_novo === 'MANUTENCAO'), [fleetHistory]);
+  // ── Manutenção: ciclos de ida e volta, não eventos soltos ────────────────
+  // O card antigo listava todo evento de baixa do período, então o mesmo
+  // equipamento aparecia uma vez por vez que quebrou, e quem já tinha voltado
+  // continuava na lista. Aqui cada baixa é casada com o retorno seguinte.
+  const ciclosManutencao = useMemo(() => {
+    const porEquip = new Map<string, any[]>();
+    [...fleetHistory]
+      .sort((a, b) => a.data === b.data
+        ? String(a.registrado_em || '').localeCompare(String(b.registrado_em || ''))
+        : String(a.data).localeCompare(String(b.data)))
+      .forEach(h => {
+        if (!porEquip.has(h.prefixo)) porEquip.set(h.prefixo, []);
+        porEquip.get(h.prefixo)!.push(h);
+      });
+
+    const ciclos: any[] = [];
+    porEquip.forEach((eventos, prefixo) => {
+      let aberto: any = null;
+      eventos.forEach(ev => {
+        if (ev.status_novo === 'MANUTENCAO') {
+          // Baixa em cima de baixa: o equipamento já está parado, vale a primeira
+          if (!aberto) aberto = ev;
+        } else if (ev.status_novo === 'OPERACIONAL' && aberto) {
+          ciclos.push({ prefixo, entrada: aberto, retorno: ev });
+          aberto = null;
+        }
+      });
+      if (aberto) ciclos.push({ prefixo, entrada: aberto, retorno: null });
+    });
+    return ciclos;
+  }, [fleetHistory]);
+
+  // Ainda parados: estado de agora, não responde ao filtro de período
+  const paradosAgora = useMemo(() =>
+    ciclosManutencao
+      .filter(c => !c.retorno)
+      .map(c => ({ ...c, dias: diasEntre(c.entrada.data, todayStr()) }))
+      .sort((a, b) => b.dias - a.dias),
+    [ciclosManutencao]);
+
+  // Voltaram: aí sim dentro do período escolhido
+  const voltaramNoPeriodo = useMemo(() =>
+    ciclosManutencao
+      .filter(c => c.retorno && c.retorno.data >= startDate && c.retorno.data <= endDate)
+      .map(c => ({ ...c, dias: diasEntre(c.entrada.data, c.retorno.data) }))
+      .sort((a, b) => String(b.retorno.data).localeCompare(String(a.retorno.data))),
+    [ciclosManutencao, startDate, endDate]);
+
+  const listaManutencao = abaManutencao === 'parados' ? paradosAgora : voltaramNoPeriodo;
+
+
+
+  // ── Detalhe de um dia: o que aconteceu naquela barra ─────────────────────
+  // Um dia pode ter mais de um relatório, um por turno, então tudo é juntado
+  // guardando de qual turno e de qual líder veio cada linha.
+  const detalheDoDia = useMemo(() => {
+    if (!diaDetalhe) return null;
+    const doDia = reports.filter(r => r.data === diaDetalhe);
+    const voos = doDia.flatMap((r: any) =>
+      (r.voos || []).map((v: any) => ({ ...v, _turno: r.turno, _lider: r.lider })));
+    const equipamentos = doDia.flatMap((r: any) =>
+      (r.locacoes || []).map((l: any) => ({ ...l, _turno: r.turno, _lider: r.lider })));
+    return { data: diaDetalhe, turnos: doDia.length, voos, equipamentos };
+  }, [diaDetalhe, reports]);
+
+  // ── Alocações internas (tipo ALOCAR): equipamento nosso emprestado ───────
+  const alocacoes = useMemo(() =>
+    reports.flatMap(r =>
+      (r.locacoes || [])
+        .filter((l: any) => l.tipo === 'ALOCAR' && l.inicio && l.fim)
+        .map((l: any) => ({
+          ...l,
+          _date: r.data,
+          _turno: r.turno,
+          _lider: r.lider,
+          // Alocação dura minutos, não horas cheias: arredondar pra cima como
+          // se faz na locação cobrada dobraria o número e mentiria o painel.
+          _minutos: calcMinutes(l.inicio, l.fim),
+        }))
+    ), [reports]);
+
+  // ── Receita x Custos ─────────────────────────────────────────────────────
+  // Receita = alocação, equipamento nosso alugado para terceiro.
+  // Custo   = locação, equipamento de terceiro que nós alugamos.
+  // Nos dois lados a cobrança é por HORA CHEIA: 1 minuto usado já é 1 hora,
+  // 1h01 são 2 horas. É por isso que aqui se usa hoursBilled e não a duração
+  // real, que é o número que aparece no painel de Alocações.
+  const receitaPorEquip = useMemo(() => {
+    const m = new Map<string, { vezes: number; horas: number }>();
+    alocacoes.forEach((a: any) => {
+      const nome = equipNames.get(a.equipamento) || a.equipamento;
+      const atual = m.get(nome) || { vezes: 0, horas: 0 };
+      m.set(nome, { vezes: atual.vezes + 1, horas: atual.horas + hoursBilled(a.inicio, a.fim) });
+    });
+    return [...m.entries()]
+      .map(([nome, v]) => {
+        const preco = precosAlocacao.get(nome);
+        return {
+          nome,
+          vezes: v.vezes,
+          horas: v.horas,
+          precoHora: preco ?? null,
+          valor: (preco ?? 0) * v.horas,
+        };
+      })
+      .sort((a, b) => b.valor - a.valor || b.horas - a.horas);
+  }, [alocacoes, equipNames, precosAlocacao]);
+
+  const receitaTotal = useMemo(() =>
+    receitaPorEquip.reduce((s, e) => s + e.valor, 0), [receitaPorEquip]);
+
+  const equipSemPreco = useMemo(() =>
+    receitaPorEquip.filter(e => e.precoHora === null), [receitaPorEquip]);
+
+  const custoPorEquip = useMemo(() => {
+    const m = new Map<string, { vezes: number; horas: number; valor: number; empresa: string }>();
+    locacoes.forEach((l: any) => {
+      const chave = l.equipamento || 'Sem equipamento';
+      const atual = m.get(chave) || { vezes: 0, horas: 0, valor: 0, empresa: l.empresa || '' };
+      const h = hoursBilled(l.inicio, l.fim);
+      m.set(chave, {
+        vezes: atual.vezes + 1,
+        horas: atual.horas + h,
+        valor: atual.valor + h * (l.valor_hora_brl || 0),
+        empresa: atual.empresa || l.empresa || '',
+      });
+    });
+    return [...m.entries()]
+      .map(([nome, v]) => ({ nome, ...v }))
+      .sort((a, b) => b.valor - a.valor);
+  }, [locacoes]);
+
+  // Uma série por dia com quantidade e dinheiro juntos, para o gráfico mostrar
+  // o número (que foi o pedido) e o tooltip mostrar quanto aquilo deu.
+  const serieDiaria = useCallback((registros: any[], valorDe: (r: any) => number, rotulo: string) => {
+    const days: string[] = [];
+    const cur = new Date(startDate + 'T00:00:00'), end = new Date(endDate + 'T00:00:00');
+    while (cur <= end) { days.push(cur.toLocaleDateString('en-CA')); cur.setDate(cur.getDate() + 1); }
+    const qtd = new Map<string, number>(), din = new Map<string, number>();
+    registros.forEach((r: any) => {
+      qtd.set(r._date, (qtd.get(r._date) || 0) + 1);
+      din.set(r._date, (din.get(r._date) || 0) + valorDe(r));
+    });
+    return days.map(d => ({
+      date: fmtShortDate(d),
+      _iso: d,
+      [rotulo]: qtd.get(d) || 0,
+      _valor: din.get(d) || 0,
+    }));
+  }, [startDate, endDate]);
+
+  const receitaPorDia = useMemo(() =>
+    serieDiaria(alocacoes, (a: any) => {
+      const preco = precosAlocacao.get(equipNames.get(a.equipamento) || a.equipamento) ?? 0;
+      return preco * hoursBilled(a.inicio, a.fim);
+    }, 'Alocações'),
+    [alocacoes, precosAlocacao, equipNames, serieDiaria]);
+
+  const custoPorDia = useMemo(() =>
+    serieDiaria(locacoes, (l: any) => hoursBilled(l.inicio, l.fim) * (l.valor_hora_brl || 0), 'Locações'),
+    [locacoes, serieDiaria]);
+
+
+  const litrosPorTipo = useMemo(() => {
+    const m = new Map<string, number>();
+    combustivel.forEach((c: any) => m.set(c.tipo, (m.get(c.tipo) || 0) + Number(c.litros)));
+    return m;
+  }, [combustivel]);
+
+  const litrosTotal = useMemo(() =>
+    combustivel.reduce((t: number, c: any) => t + Number(c.litros), 0), [combustivel]);
+
+  const abrirFormCombustivel = () => {
+    setErroCombustivel('');
+    setFormCombustivel({ data: todayStr(), tipo: 'DIESEL', litros: '' });
+  };
+
+  const salvarCombustivel = async () => {
+    if (!formCombustivel) return;
+    const litros = parseFloat(String(formCombustivel.litros).replace(',', '.'));
+    if (!formCombustivel.data) { setErroCombustivel('Escolha a data do abastecimento.'); return; }
+    if (!litros || litros <= 0) { setErroCombustivel('Informe quantos litros foram abastecidos.'); return; }
+
+    setSalvandoCombustivel(true);
+    const { error } = await supabase.from('registros_combustivel').insert([{
+      data: formCombustivel.data,
+      tipo: formCombustivel.tipo,
+      litros,
+    }]);
+    setSalvandoCombustivel(false);
+
+    if (error) { setErroCombustivel(error.message); return; }
+    setFormCombustivel(null);
+    fetchData();
+  };
+
+  const confirmarExclusaoCombustivel = async () => {
+    if (!excluirCombustivel) return;
+    await supabase.from('registros_combustivel').delete().eq('id', excluirCombustivel.id);
+    setExcluirCombustivel(null);
+    fetchData();
+  };
 
   const dateLabel = startDate === endDate
     ? fmtFullDate(startDate)
@@ -250,6 +686,22 @@ const GerenciaDashboard: React.FC = () => {
       padding: '14px 20px', gap: 12, background: '#F1F5F9',
       fontFamily: "'Inter', -apple-system, sans-serif",
     }}>
+
+      {/* A barra nativa do Windows é grossa e cinza, e rouba largura útil das
+          tabelas. Esta fica por cima do conteúdo, some quando não precisa e
+          só escurece quando o mouse encosta. */}
+      <style>{`
+        .rolagem-fina { scrollbar-width: thin; scrollbar-color: #CBD5E1 transparent; }
+        .rolagem-fina::-webkit-scrollbar { width: 6px; height: 6px; }
+        .rolagem-fina::-webkit-scrollbar-track { background: transparent; }
+        .rolagem-fina::-webkit-scrollbar-thumb {
+          background: #E2E8F0;
+          border-radius: 999px;
+        }
+        .rolagem-fina:hover::-webkit-scrollbar-thumb { background: #CBD5E1; }
+        .rolagem-fina::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+        .rolagem-fina::-webkit-scrollbar-corner { background: transparent; }
+      `}</style>
 
       {/* ── Modal de manutenção ── */}
       {expandedMaint && (
@@ -292,6 +744,18 @@ const GerenciaDashboard: React.FC = () => {
                 <p style={{ margin: 0, fontSize: 14, color: '#1E293B', fontWeight: 500 }}>{fmtFullDate(expandedMaint.data)} · {expandedMaint.turno}</p>
               </div>
             </div>
+            <div style={{ marginBottom: 18 }}>
+              <p style={{ margin: '0 0 3px', fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Situação</p>
+              {expandedMaint._retorno ? (
+                <p style={{ margin: 0, fontSize: 14, color: '#10B981', fontWeight: 600 }}>
+                  Voltou em {fmtFullDate(expandedMaint._retorno.data)}, depois de {plural(expandedMaint._dias, 'dia parado', 'dias parado')}
+                </p>
+              ) : (
+                <p style={{ margin: 0, fontSize: 14, color: '#EF4444', fontWeight: 600 }}>
+                  Ainda parado, {plural(expandedMaint._dias, 'dia', 'dias')} até hoje
+                </p>
+              )}
+            </div>
             <div>
               <p style={{ margin: '0 0 6px', fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Defeito Registrado</p>
               <p style={{ margin: 0, fontSize: 14, color: '#475569', lineHeight: 1.7 }}>{expandedMaint.motivo || 'Sem descrição registrada.'}</p>
@@ -300,36 +764,338 @@ const GerenciaDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* ── Detalhe do dia ── */}
+      {detalheDoDia && (
+        <div
+          onClick={() => setDiaDetalhe(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 14, padding: 24, maxWidth: 680, width: '92%',
+              maxHeight: '86vh', display: 'flex', flexDirection: 'column',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexShrink: 0 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#1E293B' }}>
+                {fmtFullDate(detalheDoDia.data)}
+              </span>
+              <button
+                onClick={() => setDiaDetalhe(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', display: 'flex', padding: 4 }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p style={{ margin: '0 0 18px', fontSize: 11, color: '#94A3B8', flexShrink: 0 }}>
+              {plural(detalheDoDia.turnos, 'turno entregue', 'turnos entregues')} ·{' '}
+              {plural(detalheDoDia.voos.length, 'voo', 'voos')} ·{' '}
+              {plural(detalheDoDia.equipamentos.length, 'equipamento', 'equipamentos')}
+            </p>
+
+            <div className="rolagem-fina" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'grid', gap: 20 }}>
+
+              {/* Voos do dia */}
+              <div>
+                <p style={{ margin: '0 0 8px', fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Voos Atendidos
+                </p>
+                {detalheDoDia.voos.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: 13, color: '#94A3B8' }}>Nenhum voo registrado neste dia.</p>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
+                    <thead>
+                      <tr>
+                        {['Companhia', 'Voo', 'Início', 'Fim', 'Turno'].map(h => (
+                          <th key={h} style={{ ...tableStyles.th, textAlign: 'left', fontSize: 10 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detalheDoDia.voos.map((v: any, i: number) => (
+                        <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#F8FAFC' }}>
+                          <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <Plane size={12} color="#1E293B" />
+                              {v.companhia}
+                            </span>
+                          </td>
+                          <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569' }}>{v.numero || 'S/N'}</td>
+                          <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569' }}>{v.inicio || '--:--'}</td>
+                          <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569' }}>{v.fim || '--:--'}</td>
+                          <td style={{ ...tableStyles.td, fontSize: 11, padding: '6px 8px', color: '#94A3B8', whiteSpace: 'nowrap' }}>
+                            {shiftLabel(v._turno)} · {v._lider}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* Equipamentos do dia */}
+              <div>
+                <p style={{ margin: '0 0 8px', fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Equipamentos
+                </p>
+                {detalheDoDia.equipamentos.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: 13, color: '#94A3B8' }}>Nenhuma locação ou alocação neste dia.</p>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
+                    <thead>
+                      <tr>
+                        {['Tipo', 'Equipamento', 'Horário', 'Origem', 'Turno'].map(h => (
+                          <th key={h} style={{ ...tableStyles.th, textAlign: 'left', fontSize: 10 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detalheDoDia.equipamentos.map((l: any, i: number) => {
+                        const externa = l.tipo === 'LOCAR';
+                        return (
+                          <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#F8FAFC' }}>
+                            <td style={{ ...tableStyles.td, fontSize: 11, padding: '6px 8px', whiteSpace: 'nowrap' }}>
+                              <span style={{
+                                background: externa ? '#FFF7ED' : '#EFF6FF',
+                                color: externa ? '#EA580C' : '#3B82F6',
+                                fontWeight: 700, borderRadius: 20, padding: '1px 8px',
+                              }}>
+                                {externa ? 'Locado' : 'Nosso'}
+                              </span>
+                            </td>
+                            <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              {externa ? l.equipamento : (equipNames.get(l.equipamento) || l.equipamento)}
+                              {!externa && (
+                                <span style={{ color: '#94A3B8', fontWeight: 500, marginLeft: 5, fontSize: 10 }}>{l.equipamento}</span>
+                              )}
+                            </td>
+                            <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569', whiteSpace: 'nowrap' }}>
+                              {l.inicio} às {l.fim}
+                            </td>
+                            <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569', whiteSpace: 'nowrap' }}>
+                              {externa
+                                ? `${l.empresa || 'Fornecedor'}${l.valor_hora_brl ? ' · ' + fmtBRL(hoursBilled(l.inicio, l.fim) * l.valor_hora_brl) : ''}`
+                                : 'Frota WFS'}
+                            </td>
+                            <td style={{ ...tableStyles.td, fontSize: 11, padding: '6px 8px', color: '#94A3B8', whiteSpace: 'nowrap' }}>
+                              {shiftLabel(l._turno)} · {l._lider}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Registrar abastecimento ── */}
+      {formCombustivel && (
+        <div
+          onClick={() => !salvandoCombustivel && setFormCombustivel(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 14, padding: 24, maxWidth: 380, width: '90%',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#1E293B' }}>Registrar abastecimento</span>
+              <button
+                onClick={() => setFormCombustivel(null)}
+                disabled={salvandoCombustivel}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', display: 'flex', padding: 4 }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gap: 14 }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: 5, fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Data
+                </label>
+                <input
+                  type="date"
+                  value={formCombustivel.data}
+                  onChange={e => setFormCombustivel({ ...formCombustivel, data: e.target.value })}
+                  style={{
+                    width: '100%', boxSizing: 'border-box', padding: '10px 12px', fontSize: 14,
+                    border: '1px solid #E2E8F0', borderRadius: 8, color: '#1E293B',
+                    fontFamily: 'inherit', outline: 'none',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: 5, fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Tipo de combustível
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {(['DIESEL', 'GASOLINA'] as const).map(t => {
+                    const ativo = formCombustivel.tipo === t;
+                    return (
+                      <button
+                        key={t}
+                        onClick={() => setFormCombustivel({ ...formCombustivel, tipo: t })}
+                        style={{
+                          flex: 1, padding: '10px 0', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                          background: ativo ? '#1E293B' : '#fff',
+                          color: ativo ? '#fff' : '#64748B',
+                          border: `1px solid ${ativo ? '#1E293B' : '#E2E8F0'}`,
+                          borderRadius: 8, transition: 'all 0.15s ease', fontFamily: 'inherit',
+                        }}
+                      >
+                        {t === 'DIESEL' ? 'Diesel' : 'Gasolina'}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: 5, fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Quantidade de litros
+                </label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.1"
+                  value={formCombustivel.litros}
+                  onChange={e => setFormCombustivel({ ...formCombustivel, litros: e.target.value })}
+                  onKeyDown={e => { if (e.key === 'Enter') salvarCombustivel(); }}
+                  autoFocus
+                  style={{
+                    width: '100%', boxSizing: 'border-box', padding: '10px 12px', fontSize: 14,
+                    border: '1px solid #E2E8F0', borderRadius: 8, color: '#1E293B',
+                    fontFamily: 'inherit', outline: 'none',
+                  }}
+                />
+              </div>
+
+              {erroCombustivel && (
+                <p style={{ margin: 0, fontSize: 12, color: '#EF4444', fontWeight: 600 }}>{erroCombustivel}</p>
+              )}
+
+              <button
+                onClick={salvarCombustivel}
+                disabled={salvandoCombustivel}
+                style={{
+                  width: '100%', padding: '12px 0', background: '#1E293B', color: '#fff',
+                  border: 'none', borderRadius: 8, cursor: salvandoCombustivel ? 'default' : 'pointer',
+                  fontSize: 14, fontWeight: 700, fontFamily: 'inherit', opacity: salvandoCombustivel ? 0.5 : 1,
+                }}
+              >
+                {salvandoCombustivel ? 'Salvando...' : 'Salvar registro'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirmar exclusão do abastecimento ── */}
+      {excluirCombustivel && (
+        <div
+          onClick={() => setExcluirCombustivel(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 14, padding: 24, maxWidth: 360, width: '90%',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.25)', textAlign: 'center',
+            }}
+          >
+            <AlertTriangle size={30} color="#EF4444" style={{ marginBottom: 10 }} />
+            <p style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: '#1E293B' }}>
+              Excluir este abastecimento?
+            </p>
+            <p style={{ margin: '0 0 20px', fontSize: 13, color: '#64748B', lineHeight: 1.6 }}>
+              Você vai apagar o registro de{' '}
+              <strong>{Number(excluirCombustivel.litros).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L
+              de {excluirCombustivel.tipo === 'DIESEL' ? 'diesel' : 'gasolina'}</strong>{' '}
+              do dia {fmtFullDate(excluirCombustivel.data)}. Isso não tem volta.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setExcluirCombustivel(null)}
+                style={{
+                  flex: 1, padding: '11px 0', background: '#fff', color: '#64748B',
+                  border: '1px solid #E2E8F0', borderRadius: 8, cursor: 'pointer',
+                  fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+                }}
+              >
+                Manter
+              </button>
+              <button
+                onClick={confirmarExclusaoCombustivel}
+                style={{
+                  flex: 1, padding: '11px 0', background: '#EF4444', color: '#fff',
+                  border: 'none', borderRadius: 8, cursor: 'pointer',
+                  fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
+                }}
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Header row ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
-        <Pill label="Total Locação" value={fmtBRL(totalCost)} icon={<DollarSign size={16} />} />
-        <Pill label="Horas Cobradas" value={`${totalUnits}h`} icon={<Clock size={16} />} />
-        <Pill label="Total Voos" value={String(totalFlights)} icon={<Plane size={16} />} />
-        {selectedSupplier && (
-          <button
-            onClick={() => setSelectedSupplier(null)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              background: SUPPLIER_COLORS[selectedSupplier] ?? '#1E293B',
-              color: '#fff', border: 'none', borderRadius: 20, padding: '5px 12px',
-              fontSize: 12, fontWeight: 600, cursor: 'pointer',
-            }}
-          >
-            {selectedSupplier} · {fmtBRL(supplierBadgeCost)} <X size={12} style={{ marginLeft: 2 }} />
-          </button>
+        {painel === 'locacoes' ? (
+          <>
+            <Pill label="Total Locação" value={fmtBRL(totalCost)} icon={<DollarSign size={16} />} />
+            <Pill label="Horas Cobradas" value={`${totalUnits}h`} icon={<Clock size={16} />} />
+            <Pill label="Total Voos" value={String(totalFlights)} icon={<Plane size={16} />} />
+          </>
+        ) : (
+          <>
+            {/* Sem o "Resultado" de propósito: subtrair uma coisa da outra dá um
+                número negativo que parece prejuízo da operação, e não é isso que
+                ele diz. É custo de equipamento contra receita de aluguel de
+                equipamento, e o que a rampa fatura não passa por este sistema. */}
+            <Pill label="Receita" value={fmtBRL(receitaTotal)} icon={<TrendingUp size={16} />} />
+            <Pill label="Custo" value={fmtBRL(totalCost)} icon={<DollarSign size={16} />} />
+          </>
         )}
-        {selectedEquipment && (
-          <button
-            onClick={() => setSelectedEquipment(null)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              background: '#EF4444', color: '#fff', border: 'none', borderRadius: 20,
-              padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-            }}
-          >
-            {selectedEquipment} · {fmtBRL(equipBadgeCost)} <X size={12} style={{ marginLeft: 2 }} />
-          </button>
-        )}
+
+        {/* Um botão só: o painel padrão do gerente continua sendo o padrão, e
+            Receita x Custos é o desvio. */}
+        <button
+          onClick={() => setPainel(p => p === 'receita' ? 'locacoes' : 'receita')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            background: painel === 'receita' ? '#1E293B' : '#fff',
+            color: painel === 'receita' ? '#fff' : '#1E293B',
+            border: `1px solid ${painel === 'receita' ? '#1E293B' : '#E2E8F0'}`,
+            borderRadius: 10, padding: '9px 14px', cursor: 'pointer',
+            fontSize: 13, fontWeight: 600, flexShrink: 0, transition: 'all 0.15s ease',
+          }}
+        >
+          <Scale size={14} />
+          {painel === 'receita' ? 'Voltar ao painel' : 'Receita x Custos'}
+        </button>
+
         <div ref={pickerRef} style={{ position: 'relative', marginLeft: 'auto' }}>
           <button onClick={() => setShowPicker(v => !v)} style={{
             display: 'flex', alignItems: 'center', gap: 6, background: '#fff',
@@ -351,6 +1117,149 @@ const GerenciaDashboard: React.FC = () => {
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <p style={{ color: '#94A3B8', fontWeight: 600 }}>Carregando...</p>
         </div>
+      ) : painel === 'receita' ? (
+        <>
+          {/* ── Receita em cima, Custo embaixo, mesma leitura nos dois lados ── */}
+          {equipSemPreco.length > 0 && (
+            <div style={{
+              flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8,
+              background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10,
+              padding: '8px 14px', fontSize: 12, color: '#92400E',
+            }}>
+              <AlertTriangle size={15} />
+              <span>
+                <strong>{plural(equipSemPreco.length, 'equipamento alocado está', 'equipamentos alocados estão')} sem preço cadastrado</strong>
+                {' '}({equipSemPreco.map(e => e.nome).join(', ')}), então a receita mostrada está incompleta.
+              </span>
+            </div>
+          )}
+
+          <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 320px', gap: 12 }}>
+            <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <PainelFinanceiro
+              titulo="Receita"
+              subtitulo="Equipamento nosso alugado para terceiro"
+              cor="#10B981"
+              corFraca="#ECFDF5"
+              total={receitaTotal}
+              serie={receitaPorDia}
+              chaveSerie="Alocações"
+              linhas={receitaPorEquip.map(e => ({
+                nome: e.nome,
+                horas: e.horas,
+                valor: e.valor,
+                detalhe: e.precoHora === null ? 'sem preço' : `${fmtBRL(e.precoHora)}/h`,
+                alerta: e.precoHora === null,
+              }))}
+            />
+
+            <PainelFinanceiro
+              titulo="Custos"
+              subtitulo="Equipamento de terceiro que nós alugamos"
+              cor="#EF4444"
+              corFraca="#FEF2F2"
+              total={totalCost}
+              serie={custoPorDia}
+              chaveSerie="Locações"
+              linhas={custoPorEquip.map(e => ({
+                nome: e.nome,
+                horas: e.horas,
+                valor: e.valor,
+                detalhe: e.empresa || '',
+                alerta: false,
+              }))}
+            />
+            </div>
+
+            {/* ── Combustível: único dado desta tela digitado à mão ── */}
+            <div style={{
+              background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.07)', padding: '12px 14px',
+              display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexShrink: 0 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1E293B' }}>Combustível</span>
+                <button
+                  onClick={abrirFormCombustivel}
+                  title="Registrar abastecimento"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5, background: '#1E293B', color: '#fff',
+                    border: 'none', borderRadius: 8, padding: '5px 10px', cursor: 'pointer',
+                    fontSize: 11, fontWeight: 700,
+                  }}
+                >
+                  <Plus size={13} />
+                  Registrar
+                </button>
+              </div>
+              <p style={{ margin: '2px 0 10px', fontSize: 10, color: '#94A3B8', flexShrink: 0 }}>
+                Abastecimentos de {fmtShortDate(startDate)} a {fmtShortDate(endDate)}
+              </p>
+
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginBottom: 10 }}>
+                {(['DIESEL', 'GASOLINA'] as const).map(t => (
+                  <div key={t} style={{
+                    flex: 1, background: '#F8FAFC', border: '1px solid #E2E8F0',
+                    borderRadius: 8, padding: '7px 9px',
+                  }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{t}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#1E293B' }}>
+                      {(litrosPorTipo.get(t) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
+                      <span style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8', marginLeft: 2 }}>L</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {combustivel.length === 0 ? (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+                  <p style={{ color: '#94A3B8', fontSize: 12, lineHeight: 1.6 }}>
+                    Nenhum abastecimento<br />registrado no período
+                  </p>
+                </div>
+              ) : (
+                <div className="rolagem-fina" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                  {combustivel.map((c: any) => (
+                    <div
+                      key={c.id}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
+                        padding: '6px 0', borderBottom: '1px solid #F1F5F9',
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#1E293B' }}>
+                          {Number(c.litros).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L
+                        </div>
+                        <div style={{ fontSize: 10, color: '#94A3B8' }}>
+                          {fmtShortDate(c.data)} · {c.tipo === 'DIESEL' ? 'Diesel' : 'Gasolina'}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setExcluirCombustivel(c)}
+                        title="Excluir registro"
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer', color: '#CBD5E1',
+                          display: 'flex', padding: 4, borderRadius: 6, flexShrink: 0,
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
+                        onMouseLeave={e => (e.currentTarget.style.color = '#CBD5E1')}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                  <div style={{ paddingTop: 8, marginTop: 2, borderTop: '2px solid #E2E8F0', display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>Total</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#1E293B' }}>
+                      {litrosTotal.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       ) : (
         <>
           {/* ── Row 1: Donut + Custo por Equip + Top 10 ── */}
@@ -370,7 +1279,7 @@ const GerenciaDashboard: React.FC = () => {
                   label={fmtBRL(supplierTotal)}
                   onSelect={handleSupplierClick}
                 />
-                <div style={{ width: '100%', overflowY: 'auto', flex: 1, minHeight: 0 }}>
+                <div className="rolagem-fina" style={{ width: '100%', overflowY: 'auto', flex: 1, minHeight: 0 }}>
                   {supplierMap.map(([name, cost], i) => (
                     <div
                       key={name}
@@ -406,7 +1315,7 @@ const GerenciaDashboard: React.FC = () => {
                     <YAxis tick={{ fontSize: 9, fill: '#64748B' }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} width={36} />
                     <Tooltip content={<ChartTooltip />} />
                     <Bar dataKey="cost" name="R$ Custo" radius={[4, 4, 0, 0]} onClick={handleEquipmentClick} style={{ cursor: 'pointer' }}>
-                      <LabelList dataKey="cost" position="insideTop" formatter={(v: number) => fmtBRL(v)} style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }} />
+                      <LabelList dataKey="cost" content={<RotuloVertical formatar={(v: number) => fmtBRL(v)} />} />
                       {byEquip.map((_, i) => <Cell key={i} fill={i === 0 ? '#EF4444' : '#1E293B'} />)}
                     </Bar>
                   </BarChart>
@@ -428,7 +1337,7 @@ const GerenciaDashboard: React.FC = () => {
                     <YAxis dataKey="name" type="category" tick={{ fontSize: 9, fill: '#64748B' }} width={80} />
                     <Tooltip content={<ChartTooltip />} />
                     <Bar dataKey="horas" name="Horas" radius={[0, 4, 4, 0]} onClick={handleEquipmentClick} style={{ cursor: 'pointer' }}>
-                      <LabelList dataKey="horas" position="insideRight" formatter={(v: number) => `${v}h`} style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }} />
+                      <LabelList dataKey="horas" content={<RotuloHorizontal formatar={(v: number) => `${v}h`} />} />
                       {top10.map((_, i) => <Cell key={i} fill={i === 0 ? '#EF4444' : '#1E293B'} />)}
                     </Bar>
                   </BarChart>
@@ -441,17 +1350,31 @@ const GerenciaDashboard: React.FC = () => {
           <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 12 }}>
 
             {/* Voos × Locações */}
-            <ChartCard title="Análise: Voos × Locações">
+            <ChartCard title="Análise: Voos × Locações" dica="clique na barra para ver o dia">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={dailyData} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
+                <ComposedChart
+                  data={dailyData}
+                  margin={{ left: 0, right: 16, top: 22, bottom: 8 }}
+                  onClick={(e: any) => {
+                    // Clique em qualquer ponto da coluna, e nao so na barra: dia
+                    // sem voo nao desenha barra nenhuma e ficaria sem como abrir.
+                    const iso = e?.activePayload?.[0]?.payload?._iso;
+                    if (iso) setDiaDetalhe(iso);
+                  }}
+                  style={{ cursor: 'pointer' }}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748B' }} />
                   <YAxis yAxisId="l" tick={{ fontSize: 10, fill: '#64748B' }} allowDecimals={false} width={28} />
                   <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 10, fill: '#64748B' }} allowDecimals={false} width={28} />
                   <Tooltip content={<ChartTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 12 }} formatter={v => <span style={{ color: '#1E293B', fontWeight: 500 }}>{v}</span>} />
-                  <Bar yAxisId="l" dataKey="Voos" fill="#1E293B" radius={[4, 4, 0, 0]} opacity={0.9}>
-                    <LabelList dataKey="Voos" position="insideTop" style={{ fontSize: 12, fill: '#fff', fontWeight: 700 }} />
+                  <Bar
+                    yAxisId="l" dataKey="Voos" fill="#1E293B" radius={[4, 4, 0, 0]} opacity={0.9}
+                    onClick={(d: any) => setDiaDetalhe(d?._iso ?? d?.payload?._iso ?? null)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <LabelList dataKey="Voos" content={<RotuloVertical />} />
                   </Bar>
                   <Line yAxisId="r" type="monotone" dataKey="Locações (h)" stroke="#EF4444" strokeWidth={2}
                     dot={{ r: 3, fill: '#fff', stroke: '#EF4444', strokeWidth: 2 }} />
@@ -459,58 +1382,123 @@ const GerenciaDashboard: React.FC = () => {
               </ResponsiveContainer>
             </ChartCard>
 
-            {/* Equipamentos em Manutenção */}
+            {/* Manutenção da frota: estado real, um registro por ciclo */}
             <div style={{
               background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0',
               boxShadow: '0 1px 3px rgba(0,0,0,0.07)', padding: '12px 14px',
               display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden',
             }}>
-              <p style={{ fontSize: 13, fontWeight: 600, color: '#1E293B', margin: '0 0 8px', flexShrink: 0 }}>
-                Equipamentos em Manutenção
-                {maintRecords.length > 0 && (
-                  <span style={{ marginLeft: 8, background: '#FEF2F2', color: '#EF4444', fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '1px 8px' }}>
-                    {maintRecords.length}
-                  </span>
-                )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexShrink: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#1E293B', margin: 0, marginRight: 4 }}>
+                  Manutenção da Frota
+                </p>
+                {([
+                  ['parados', 'Parados agora', paradosAgora.length, '#EF4444'],
+                  ['voltaram', 'Voltaram', voltaramNoPeriodo.length, '#10B981'],
+                ] as [string, string, number, string][]).map(([chave, rotulo, total, cor]) => {
+                  const ativa = abaManutencao === chave;
+                  return (
+                    <button
+                      key={chave}
+                      onClick={() => setAbaManutencao(chave as 'parados' | 'voltaram')}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        background: ativa ? cor : '#F8FAFC',
+                        color: ativa ? '#fff' : '#64748B',
+                        border: '1px solid ' + (ativa ? cor : '#E2E8F0'),
+                        borderRadius: 20, padding: '3px 10px', cursor: 'pointer',
+                        fontSize: 11, fontWeight: 600, transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {rotulo}
+                      <span style={{
+                        background: ativa ? 'rgba(255,255,255,0.25)' : '#E2E8F0',
+                        color: ativa ? '#fff' : '#475569',
+                        borderRadius: 20, padding: '0 6px', fontSize: 10, fontWeight: 700,
+                      }}>{total}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <p style={{ margin: '0 0 8px', fontSize: 10, color: '#94A3B8', flexShrink: 0 }}>
+                {abaManutencao === 'parados'
+                  ? 'Estado de hoje, não muda com o período escolhido'
+                  : 'Voltaram para a operação entre ' + fmtShortDate(startDate) + ' e ' + fmtShortDate(endDate)}
               </p>
-              {maintRecords.length === 0 ? (
+
+              {listaManutencao.length === 0 ? (
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <p style={{ color: '#94A3B8', fontSize: 13 }}>Nenhum envio no período</p>
+                  <p style={{ color: '#94A3B8', fontSize: 13 }}>
+                    {abaManutencao === 'parados' ? 'Frota inteira operacional' : 'Nenhum retorno no período'}
+                  </p>
                 </div>
               ) : (
-                <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                <div className="rolagem-fina" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
                     <thead style={{ position: 'sticky', top: 0 }}>
                       <tr>
-                        {['Nome', 'Líder', 'Data / Turno', 'Defeito'].map(h => (
+                        {(abaManutencao === 'parados'
+                          ? ['Equipamento', 'Desde', 'Parado há', 'Defeito']
+                          : ['Equipamento', 'Baixa', 'Retorno', 'Ficou']
+                        ).map(h => (
                           <th key={h} style={{ ...tableStyles.th, textAlign: 'left', fontSize: 10 }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {maintRecords.map((r, i) => (
+                      {listaManutencao.map((c: any, i: number) => (
                         <tr
-                          key={i}
-                          onClick={() => setExpandedMaint(r)}
+                          key={c.prefixo + '-' + c.entrada.data + '-' + i}
+                          onClick={() => setExpandedMaint({ ...c.entrada, _retorno: c.retorno, _dias: c.dias })}
                           style={{ background: i % 2 === 0 ? '#fff' : '#F8FAFC', cursor: 'pointer' }}
                           onMouseEnter={e => (e.currentTarget.style.background = '#EFF6FF')}
                           onMouseLeave={e => (e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#F8FAFC')}
                         >
+                          {/* O prefixo é o que diferencia dois LOADER: sem ele a lista
+                              parecia repetir o mesmo equipamento várias vezes. */}
                           <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#EF4444', flexShrink: 0 }} />
-                              {equipNames.get(r.prefixo) || r.prefixo}
+                              <span style={{
+                                width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                                background: abaManutencao === 'parados' ? '#EF4444' : '#10B981',
+                              }} />
+                              <span>
+                                {equipNames.get(c.prefixo) || c.prefixo}
+                                <span style={{ color: '#94A3B8', fontWeight: 500, marginLeft: 5, fontSize: 10 }}>
+                                  {c.prefixo}
+                                </span>
+                              </span>
                             </span>
                           </td>
-                          <td style={{ ...tableStyles.td, fontSize: 11, padding: '6px 8px', color: '#475569', whiteSpace: 'nowrap', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {r.lider || '—'}
-                          </td>
                           <td style={{ ...tableStyles.td, fontSize: 11, padding: '6px 8px', color: '#475569', whiteSpace: 'nowrap' }}>
-                            {fmtShortDate(r.data)} · {r.turno}
+                            {fmtShortDate(c.entrada.data)}
                           </td>
-                          <td style={{ ...tableStyles.td, fontSize: 11, padding: '6px 8px', color: '#64748B', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {r.motivo || '—'}
-                          </td>
+                          {abaManutencao === 'parados' ? (
+                            <>
+                              <td style={{ ...tableStyles.td, fontSize: 11, padding: '6px 8px', whiteSpace: 'nowrap' }}>
+                                <span style={{
+                                  background: c.dias >= 30 ? '#FEF2F2' : '#F1F5F9',
+                                  color: c.dias >= 30 ? '#EF4444' : '#475569',
+                                  fontWeight: 700, borderRadius: 20, padding: '1px 8px',
+                                }}>
+                                  {plural(c.dias, 'dia', 'dias')}
+                                </span>
+                              </td>
+                              <td style={{ ...tableStyles.td, fontSize: 11, padding: '6px 8px', color: '#64748B', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {c.entrada.motivo || 'Sem descrição'}
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td style={{ ...tableStyles.td, fontSize: 11, padding: '6px 8px', color: '#10B981', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                {fmtShortDate(c.retorno.data)}
+                              </td>
+                              <td style={{ ...tableStyles.td, fontSize: 11, padding: '6px 8px', color: '#475569', whiteSpace: 'nowrap' }}>
+                                {plural(c.dias, 'dia', 'dias')}
+                              </td>
+                            </>
+                          )}
                         </tr>
                       ))}
                     </tbody>
