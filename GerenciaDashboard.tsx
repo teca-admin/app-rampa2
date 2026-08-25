@@ -231,18 +231,25 @@ const PainelFinanceiro: React.FC<{
             </thead>
             <tbody>
               {linhas.map((l, i) => (
-                <tr key={l.nome} style={{ background: i % 2 === 0 ? '#fff' : '#F8FAFC' }}>
+                // O nome sozinho deixou de ser único: o mesmo equipamento
+                // aparece uma vez por fornecedor, cada um com o seu preço.
+                <tr key={`${l.nome} || ${l.detalhe}`} style={{ background: i % 2 === 0 ? '#fff' : '#F8FAFC' }}>
                   <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: cor, flexShrink: 0 }} />
                       {nomeVisivel(l.nome)}
                     </span>
                     {l.detalhe && (
+                      // Embaixo do nome, e não do lado: com fornecedor e preço
+                      // na mesma linha o texto passava da largura da coluna e
+                      // empurrava Horas e Total pra fora do card.
                       <span style={{
-                        marginLeft: 5, fontSize: 10, fontWeight: 600,
+                        display: 'block', marginTop: 1, marginLeft: 11,
+                        fontSize: 10, fontWeight: 600,
                         color: l.alerta ? '#B45309' : '#94A3B8',
                         background: l.alerta ? '#FFFBEB' : 'transparent',
                         borderRadius: 20, padding: l.alerta ? '1px 6px' : 0,
+                        width: 'fit-content',
                       }}>
                         {l.detalhe}
                       </span>
@@ -614,21 +621,42 @@ const GerenciaDashboard: React.FC = () => {
   const equipSemPreco = useMemo(() =>
     receitaPorEquip.filter(e => e.precoHora === null), [receitaPorEquip]);
 
+  // Uma linha por equipamento E FORNECEDOR, nunca só por equipamento.
+  // 🔴 O mesmo PUSHBACK NARROW é locado da AeroSky a R$ 145 e da Dnata a
+  // R$ 180, e o LPU/ASU da Gol vem em dólar. Agrupando só pelo nome, as horas
+  // eram a soma de todo mundo, o valor era a mistura dos preços e o fornecedor
+  // impresso era o do primeiro registro que caiu no mapa: a linha dizia
+  // "AeroSky · 2h · R$ 325" quando a AeroSky tinha feito 1h de R$ 145 e a
+  // hora restante era da Dnata, a R$ 180. Nenhuma conta fechava na mão.
   const custoPorEquip = useMemo(() => {
-    const m = new Map<string, { vezes: number; horas: number; valor: number; empresa: string }>();
+    const m = new Map<string, {
+      nome: string; empresa: string; vezes: number; horas: number;
+      valor: number; precos: Set<number>;
+    }>();
     locacoes.forEach((l: any) => {
-      const chave = l.equipamento || 'Sem equipamento';
-      const atual = m.get(chave) || { vezes: 0, horas: 0, valor: 0, empresa: l.empresa || '' };
+      const nome = l.equipamento || 'Sem equipamento';
+      const empresa = l.empresa || 'Sem fornecedor';
+      const chave = `${nome} || ${empresa}`;
+      const atual = m.get(chave)
+        || { nome, empresa, vezes: 0, horas: 0, valor: 0, precos: new Set<number>() };
       const h = hoursBilled(l.inicio, l.fim);
+      const preco = l.valor_hora_brl || 0;
+      atual.precos.add(preco);
       m.set(chave, {
+        ...atual,
         vezes: atual.vezes + 1,
         horas: atual.horas + h,
-        valor: atual.valor + h * (l.valor_hora_brl || 0),
-        empresa: atual.empresa || l.empresa || '',
+        valor: atual.valor + h * preco,
       });
     });
-    return [...m.entries()]
-      .map(([nome, v]) => ({ nome, ...v }))
+    return [...m.values()]
+      .map(v => ({
+        ...v,
+        // O preço só aparece quando é um só no período inteiro. A locação da
+        // Gol é em dólar e muda com a cotação do dia, então ali a linha avisa
+        // que o preço varia em vez de estampar um número que não multiplica.
+        precoHora: v.precos.size === 1 ? [...v.precos][0] : null,
+      }))
       .sort((a, b) => b.valor - a.valor);
   }, [locacoes]);
 
@@ -1202,7 +1230,11 @@ const GerenciaDashboard: React.FC = () => {
                 nome: e.nome,
                 horas: e.horas,
                 valor: e.valor,
-                detalhe: e.empresa || '',
+                // Fornecedor e preço juntos: é o que faz horas × preço fechar
+                // com o total da linha na conta de cabeça do gerente.
+                detalhe: e.precoHora !== null
+                  ? `${e.empresa} · ${fmtBRL(e.precoHora)}/h`
+                  : `${e.empresa} · preço variável`,
                 alerta: false,
               }))}
             />
