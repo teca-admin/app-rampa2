@@ -107,6 +107,16 @@ const RotuloHorizontal: React.FC<any> = ({ x, y, width, height, value, formatar 
   );
 };
 
+// ─── O nome que o gerente usa ────────────────────────────────────────────
+// Na boca da operação PUSHBACK é rebocador, então a tela dele fala assim:
+// PUSHBACK NARROW aparece como REBOCADOR NARROW, e o mesmo pro WIDE.
+// 🔑 É troca de FACHADA e só neste painel. O banco continua gravando
+// PUSHBACK, e o nome cru continua sendo a chave do preço (a tabela
+// tabela_precos_alocacao casa por nome exato), do agrupamento e do filtro por
+// equipamento. Traduzir no dado, e não na hora de desenhar, apagaria o preço
+// e quebraria o clique que filtra o gráfico.
+const nomeVisivel = (nome: any) => String(nome ?? '').replace(/PUSHBACK/gi, 'REBOCADOR');
+
 // ─── Meio painel financeiro ──────────────────────────────────────────────────
 // Receita e Custo leem igual de propósito: mesma barra por dia à esquerda e a
 // mesma lista por equipamento à direita, mudando só a cor e o sinal. Assim o
@@ -120,7 +130,11 @@ const PainelFinanceiro: React.FC<{
   serie: any[];
   chaveSerie: string;
   linhas: { nome: string; horas: number; valor: number; detalhe: string; alerta: boolean }[];
-}> = ({ titulo, subtitulo, cor, corFraca, total, serie, chaveSerie, linhas }) => (
+}> = ({ titulo, subtitulo, cor, corFraca, total, serie, chaveSerie, linhas }) => {
+  // O total de horas sai da mesma lista que desenha as linhas, entao o rodape
+  // nunca discorda do que esta escrito acima dele.
+  const totalHoras = linhas.reduce((soma, l) => soma + l.horas, 0);
+  return (
   // A tabela ficava larga demais: o nome do equipamento é curto e sobrava um
   // vão morto antes de Horas e Total. Encolhendo esta coluna, os números vêm
   // pra perto do nome e a largura que sobra vai pro card de Combustível.
@@ -203,7 +217,12 @@ const PainelFinanceiro: React.FC<{
                       textAlign: h === 'Equipamento' ? 'left' : 'right',
                       // Sem largura fixa nas duas últimas, a primeira estica e
                       // empurra os números pro canto direito da tela.
-                      width: h === 'Equipamento' ? 'auto' : (h === 'Horas' ? 52 : 96),
+                      // Total ficou mais largo e Horas ganhou respiro à direita:
+                      // no rodapé os dois números são grandes e encostavam um no
+                      // outro. A largura do card não muda, porque quem cede o
+                      // espaço é a coluna Equipamento, que é 'auto'.
+                      width: h === 'Equipamento' ? 'auto' : (h === 'Horas' ? 62 : 112),
+                      paddingRight: h === 'Horas' ? 14 : undefined,
                       whiteSpace: 'nowrap',
                     }}
                   >{h}</th>
@@ -216,7 +235,7 @@ const PainelFinanceiro: React.FC<{
                   <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: cor, flexShrink: 0 }} />
-                      {l.nome}
+                      {nomeVisivel(l.nome)}
                     </span>
                     {l.detalhe && (
                       <span style={{
@@ -229,7 +248,7 @@ const PainelFinanceiro: React.FC<{
                       </span>
                     )}
                   </td>
-                  <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569', textAlign: 'right' }}>{l.horas}h</td>
+                  <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 14px 6px 8px', color: '#475569', textAlign: 'right' }}>{l.horas}h</td>
                   <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', fontWeight: 700, color: '#1E293B', textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {fmtBRL(l.valor)}
                   </td>
@@ -238,8 +257,11 @@ const PainelFinanceiro: React.FC<{
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={2} style={{ ...tableStyles.td, fontSize: 11, padding: '8px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', borderTop: '2px solid #E2E8F0' }}>
+                <td style={{ ...tableStyles.td, fontSize: 11, padding: '8px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', borderTop: '2px solid #E2E8F0' }}>
                   Total
+                </td>
+                <td style={{ ...tableStyles.td, fontSize: 13, padding: '8px 14px 8px 8px', fontWeight: 700, color: '#475569', textAlign: 'right', whiteSpace: 'nowrap', borderTop: '2px solid #E2E8F0' }}>
+                  {totalHoras}h
                 </td>
                 <td style={{ ...tableStyles.td, fontSize: 13, padding: '8px', fontWeight: 700, color: cor, textAlign: 'right', whiteSpace: 'nowrap', borderTop: '2px solid #E2E8F0', background: corFraca }}>
                   {fmtBRL(total)}
@@ -251,7 +273,8 @@ const PainelFinanceiro: React.FC<{
       )}
     </div>
   </div>
-);
+  );
+};
 
 // ─── Compact KPI pill ─────────────────────────────────────────────────────────
 const Pill: React.FC<{ label: string; value: string; icon: React.ReactNode; accent?: boolean }> =
@@ -306,7 +329,7 @@ const GerenciaDashboard: React.FC = () => {
   const [salvandoCombustivel, setSalvandoCombustivel] = useState(false);
   const [erroCombustivel, setErroCombustivel] = useState('');
   const [excluirCombustivel, setExcluirCombustivel] = useState<any | null>(null);
-  const [abaManutencao, setAbaManutencao] = useState<'parados' | 'voltaram'>('parados');
+  const [abaManutencao, setAbaManutencao] = useState<'parados' | 'voltaram' | 'operacao'>('parados');
   const [diaDetalhe, setDiaDetalhe] = useState<string | null>(null);
   const [equipStatus, setEquipStatus] = useState<Map<string, string>>(new Map());
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -510,6 +533,20 @@ const GerenciaDashboard: React.FC = () => {
       .map(c => ({ ...c, dias: diasEntre(c.entrada.data, c.retorno.data) }))
       .sort((a, b) => String(b.retorno.data).localeCompare(String(a.retorno.data))),
     [ciclosManutencao, startDate, endDate]);
+
+  // Em operação agora: o que a frota tem de pé neste instante. Não é registro,
+  // é equipamento, e por isso vem da coluna `status` do cadastro da frota, não
+  // do histórico. Quem está em "Parados agora" é retirado na mão: se o cadastro
+  // e o histórico discordarem, o equipamento não pode aparecer nas duas abas.
+  const emOperacaoAgora = useMemo(() => {
+    const parados = new Set(paradosAgora.map((c: any) => c.prefixo));
+    return [...equipStatus.entries()]
+      .filter(([prefixo, status]) => String(status).toUpperCase() === 'OPERACIONAL' && !parados.has(prefixo))
+      .map(([prefixo]) => ({ prefixo, nome: equipNames.get(prefixo) || prefixo }))
+      // Ordena pelo nome que aparece na tela, senao REBOCADOR ficaria ordenado
+      // pela letra P, que ninguem enxerga.
+      .sort((a, b) => nomeVisivel(a.nome).localeCompare(nomeVisivel(b.nome)) || a.prefixo.localeCompare(b.prefixo));
+  }, [equipStatus, equipNames, paradosAgora]);
 
   const listaManutencao = abaManutencao === 'parados' ? paradosAgora : voltaramNoPeriodo;
 
@@ -723,7 +760,7 @@ const GerenciaDashboard: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444', flexShrink: 0, display: 'inline-block' }} />
                 <span style={{ fontSize: 16, fontWeight: 700, color: '#1E293B' }}>
-                  {equipNames.get(expandedMaint.prefixo) || expandedMaint.prefixo}
+                  {nomeVisivel(equipNames.get(expandedMaint.prefixo) || expandedMaint.prefixo)}
                   <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400, marginLeft: 6 }}>({expandedMaint.prefixo})</span>
                 </span>
               </div>
@@ -869,7 +906,7 @@ const GerenciaDashboard: React.FC = () => {
                               </span>
                             </td>
                             <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                              {externa ? l.equipamento : (equipNames.get(l.equipamento) || l.equipamento)}
+                              {nomeVisivel(externa ? l.equipamento : (equipNames.get(l.equipamento) || l.equipamento))}
                               {!externa && (
                                 <span style={{ color: '#94A3B8', fontWeight: 500, marginLeft: 5, fontSize: 10 }}>{l.equipamento}</span>
                               )}
@@ -1074,8 +1111,8 @@ const GerenciaDashboard: React.FC = () => {
                 número negativo que parece prejuízo da operação, e não é isso que
                 ele diz. É custo de equipamento contra receita de aluguel de
                 equipamento, e o que a rampa fatura não passa por este sistema. */}
-            <Pill label="Receita" value={fmtBRL(receitaTotal)} icon={<TrendingUp size={16} />} />
-            <Pill label="Custo" value={fmtBRL(totalCost)} icon={<DollarSign size={16} />} />
+            <Pill label="Alocação" value={fmtBRL(receitaTotal)} icon={<TrendingUp size={16} />} />
+            <Pill label="Locação" value={fmtBRL(totalCost)} icon={<DollarSign size={16} />} />
           </>
         )}
 
@@ -1093,7 +1130,7 @@ const GerenciaDashboard: React.FC = () => {
           }}
         >
           <Scale size={14} />
-          {painel === 'receita' ? 'Voltar ao painel' : 'Receita x Custos'}
+          {painel === 'receita' ? 'Voltar ao painel' : 'Alocação x Locação'}
         </button>
 
         <div ref={pickerRef} style={{ position: 'relative', marginLeft: 'auto' }}>
@@ -1129,7 +1166,7 @@ const GerenciaDashboard: React.FC = () => {
               <AlertTriangle size={15} />
               <span>
                 <strong>{plural(equipSemPreco.length, 'equipamento alocado está', 'equipamentos alocados estão')} sem preço cadastrado</strong>
-                {' '}({equipSemPreco.map(e => e.nome).join(', ')}), então a receita mostrada está incompleta.
+                {' '}({equipSemPreco.map(e => nomeVisivel(e.nome)).join(', ')}), então a receita mostrada está incompleta.
               </span>
             </div>
           )}
@@ -1137,7 +1174,7 @@ const GerenciaDashboard: React.FC = () => {
           <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 320px', gap: 12 }}>
             <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <PainelFinanceiro
-              titulo="Receita"
+              titulo="Alocação"
               subtitulo="Equipamento nosso alugado para terceiro"
               cor="#10B981"
               corFraca="#ECFDF5"
@@ -1154,7 +1191,7 @@ const GerenciaDashboard: React.FC = () => {
             />
 
             <PainelFinanceiro
-              titulo="Custos"
+              titulo="Locação"
               subtitulo="Equipamento de terceiro que nós alugamos"
               cor="#EF4444"
               corFraca="#FEF2F2"
@@ -1311,9 +1348,11 @@ const GerenciaDashboard: React.FC = () => {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={byEquip} margin={{ left: 0, right: 8, top: 20, bottom: 40 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#64748B' }} angle={-35} textAnchor="end" interval={0} />
+                    {/* O eixo traduz na hora de desenhar; `name` no dado segue cru,
+                        porque é ele que o clique usa pra filtrar o painel. */}
+                    <XAxis dataKey="name" tickFormatter={nomeVisivel} tick={{ fontSize: 9, fill: '#64748B' }} angle={-35} textAnchor="end" interval={0} />
                     <YAxis tick={{ fontSize: 9, fill: '#64748B' }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} width={36} />
-                    <Tooltip content={<ChartTooltip />} />
+                    <Tooltip content={(props: any) => <ChartTooltip {...props} label={nomeVisivel(props.label)} />} />
                     <Bar dataKey="cost" name="R$ Custo" radius={[4, 4, 0, 0]} onClick={handleEquipmentClick} style={{ cursor: 'pointer' }}>
                       <LabelList dataKey="cost" content={<RotuloVertical formatar={(v: number) => fmtBRL(v)} />} />
                       {byEquip.map((_, i) => <Cell key={i} fill={i === 0 ? '#EF4444' : '#1E293B'} />)}
@@ -1334,8 +1373,8 @@ const GerenciaDashboard: React.FC = () => {
                   <BarChart data={top10} layout="vertical" margin={{ left: 0, right: 40, top: 4, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
                     <XAxis type="number" tick={{ fontSize: 9, fill: '#64748B' }} allowDecimals={false} />
-                    <YAxis dataKey="name" type="category" tick={{ fontSize: 9, fill: '#64748B' }} width={80} />
-                    <Tooltip content={<ChartTooltip />} />
+                    <YAxis dataKey="name" type="category" tickFormatter={nomeVisivel} tick={{ fontSize: 9, fill: '#64748B' }} width={80} />
+                    <Tooltip content={(props: any) => <ChartTooltip {...props} label={nomeVisivel(props.label)} />} />
                     <Bar dataKey="horas" name="Horas" radius={[0, 4, 4, 0]} onClick={handleEquipmentClick} style={{ cursor: 'pointer' }}>
                       <LabelList dataKey="horas" content={<RotuloHorizontal formatar={(v: number) => `${v}h`} />} />
                       {top10.map((_, i) => <Cell key={i} fill={i === 0 ? '#EF4444' : '#1E293B'} />)}
@@ -1395,12 +1434,13 @@ const GerenciaDashboard: React.FC = () => {
                 {([
                   ['parados', 'Parados agora', paradosAgora.length, '#EF4444'],
                   ['voltaram', 'Voltaram', voltaramNoPeriodo.length, '#10B981'],
+                  ['operacao', 'Em operação agora', emOperacaoAgora.length, '#3B82F6'],
                 ] as [string, string, number, string][]).map(([chave, rotulo, total, cor]) => {
                   const ativa = abaManutencao === chave;
                   return (
                     <button
                       key={chave}
-                      onClick={() => setAbaManutencao(chave as 'parados' | 'voltaram')}
+                      onClick={() => setAbaManutencao(chave as 'parados' | 'voltaram' | 'operacao')}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 5,
                         background: ativa ? cor : '#F8FAFC',
@@ -1424,10 +1464,42 @@ const GerenciaDashboard: React.FC = () => {
               <p style={{ margin: '0 0 8px', fontSize: 10, color: '#94A3B8', flexShrink: 0 }}>
                 {abaManutencao === 'parados'
                   ? 'Estado de hoje, não muda com o período escolhido'
-                  : 'Voltaram para a operação entre ' + fmtShortDate(startDate) + ' e ' + fmtShortDate(endDate)}
+                  : abaManutencao === 'operacao'
+                    ? 'Equipamentos operantes neste momento, direto do cadastro da frota'
+                    : 'Voltaram para a operação entre ' + fmtShortDate(startDate) + ' e ' + fmtShortDate(endDate)}
               </p>
 
-              {listaManutencao.length === 0 ? (
+              {abaManutencao === 'operacao' ? (
+                emOperacaoAgora.length === 0 ? (
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <p style={{ color: '#94A3B8', fontSize: 13 }}>Nenhum equipamento operante</p>
+                  </div>
+                ) : (
+                  <div className="rolagem-fina" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                    {/* Sem tabela de propósito: aqui não há data nem defeito pra mostrar,
+                        é só a lista do que está de pé, então cabe mais nome por linha. */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(178px, 1fr))', gap: 6 }}>
+                      {emOperacaoAgora.map(e => (
+                        <div key={e.prefixo} style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          background: '#F8FAFC', border: '1px solid #E2E8F0',
+                          borderRadius: 8, padding: '5px 9px', minWidth: 0,
+                        }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#3B82F6', flexShrink: 0 }} />
+                          <span style={{
+                            fontSize: 12, fontWeight: 600, color: '#1E293B',
+                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                          }}>{nomeVisivel(e.nome)}</span>
+                          {/* O prefixo é o que separa dois LOADER com o mesmo nome */}
+                          <span style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500, marginLeft: 'auto', flexShrink: 0 }}>
+                            {e.prefixo}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              ) : listaManutencao.length === 0 ? (
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <p style={{ color: '#94A3B8', fontSize: 13 }}>
                     {abaManutencao === 'parados' ? 'Frota inteira operacional' : 'Nenhum retorno no período'}
@@ -1464,7 +1536,7 @@ const GerenciaDashboard: React.FC = () => {
                                 background: abaManutencao === 'parados' ? '#EF4444' : '#10B981',
                               }} />
                               <span>
-                                {equipNames.get(c.prefixo) || c.prefixo}
+                                {nomeVisivel(equipNames.get(c.prefixo) || c.prefixo)}
                                 <span style={{ color: '#94A3B8', fontWeight: 500, marginLeft: 5, fontSize: 10 }}>
                                   {c.prefixo}
                                 </span>
