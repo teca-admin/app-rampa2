@@ -1,7 +1,10 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Zap, Sun, Moon, RefreshCcw, Download, Send
+  salvarLocal, lerLocal, salvarRascunho, lerRascunho, apagarRascunho, rascunhoVelho,
+} from './armazenamentoLocal';
+import {
+  Zap, Sun, Moon, RefreshCcw, Download, Send, WifiOff, Save
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { FleetStat } from './types';
@@ -28,6 +31,15 @@ const fetchUsdToBrl = async (): Promise<number> => {
   } catch {
     return 5.8; // fallback conservador caso a API falhe
   }
+};
+
+// Só a hora, sem a data: o rascunho é do turno em andamento, e a data completa
+// ocuparia a linha sem responder nada que o líder já não saiba.
+const formatarHoraRascunho = (iso: string): string => {
+  const d = new Date(iso);
+  return isFinite(d.getTime())
+    ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    : '--:--';
 };
 
 const AppInner: React.FC = () => {
@@ -97,10 +109,95 @@ const AppInner: React.FC = () => {
   const [formTransporte, setFormTransporte] = useState<{ cia: string; manual_name?: string }[]>([]);
   const [formBriefing, setFormBriefing] = useState({ ativo: false, inicio: '', fim: '' });
   const [formDebriefing, setFormDebriefing] = useState({ ativo: false, inicio: '', fim: '' });
+  // Km do SPIN, pedido do coordenador em 10/09/2026. Guardado como TEXTO e não
+  // como número porque o campo pode estar vazio, e `0` de campo vazio viraria
+  // odômetro zerado no banco. A conversão pra número acontece só no payload.
+  const [formKmSpin, setFormKmSpin] = useState({ inicial: '', final: '' });
+
+  // ─── Offline, entrou em 10/09/2026 ────────────────────────────────────────
+  // 🔴 `navigator.onLine` só sabe dizer que NÃO HÁ REDE. Ele responde `true`
+  // com wi-fi conectado que não chega a lugar nenhum, que é metade dos casos
+  // do pátio. Por isso ele nunca libera nada sozinho: serve pra AVISAR, e a
+  // prova de que dá pra gravar continua sendo a gravação em si.
+  const [estaOffline, setEstaOffline] = useState(!navigator.onLine);
+  const [rascunhoSalvoEm, setRascunhoSalvoEm] = useState<string | null>(null);
+  const [rascunhoRestaurado, setRascunhoRestaurado] = useState<string | null>(null);
+  // Enquanto não terminar de restaurar, NÃO pode salvar: o primeiro efeito de
+  // gravação rodaria com o formulário vazio e apagaria o rascunho que o líder
+  // tem no celular, antes de ele ver a tela.
+  const prontoParaSalvar = useRef(false);
 
   // Fluxo do envio: formulário -> prévia -> sucesso. Nada é gravado antes da confirmação.
   const [mobileScreen, setMobileScreen] = useState<'form' | 'preview' | 'success'>('form');
   const [reportPayload, setReportPayload] = useState<any>(null);
+
+  // ─── Rede: só avisa, nunca decide sozinho ────────────────────────────────
+  useEffect(() => {
+    const online = () => setEstaOffline(false);
+    const offline = () => setEstaOffline(true);
+    window.addEventListener('online', online);
+    window.addEventListener('offline', offline);
+    return () => {
+      window.removeEventListener('online', online);
+      window.removeEventListener('offline', offline);
+    };
+  }, []);
+
+  // ─── Restaura o rascunho, UMA vez, antes de qualquer gravação ────────────
+  useEffect(() => {
+    const r = lerRascunho();
+    if (r && !rascunhoVelho(r)) {
+      const c = r.campos;
+      // Campo a campo e com valor de reserva: rascunho gravado por uma versão
+      // anterior do app não tem os campos que nasceram depois, e espalhar
+      // `undefined` no estado quebraria a tela na hora de desenhar.
+      if (c.formDate) setFormDate(c.formDate);
+      if (c.formShift) setFormShift(c.formShift);
+      if (c.formLeader) setFormLeader(c.formLeader);
+      if (c.formHR) setFormHR(c.formHR);
+      if (typeof c.formPendencias === 'string') setFormPendencias(c.formPendencias);
+      if (typeof c.formOcorrencias === 'string') setFormOcorrencias(c.formOcorrencias);
+      if (Array.isArray(c.formRentals)) setFormRentals(c.formRentals);
+      if (Array.isArray(c.formGseOut)) setFormGseOut(c.formGseOut);
+      if (Array.isArray(c.formGseIn)) setFormGseIn(c.formGseIn);
+      if (Array.isArray(c.formFlights)) setFormFlights(c.formFlights);
+      if (Array.isArray(c.formTransporte)) setFormTransporte(c.formTransporte);
+      if (c.formBriefing) setFormBriefing(c.formBriefing);
+      if (c.formDebriefing) setFormDebriefing(c.formDebriefing);
+      if (c.formKmSpin) setFormKmSpin(c.formKmSpin);
+      setRascunhoSalvoEm(r.salvoEm);
+      setRascunhoRestaurado(r.salvoEm);
+    } else if (r) {
+      // Passou de dois dias: é rascunho esquecido, e restaurar dado velho por
+      // cima de um turno novo é pior que não restaurar nada.
+      apagarRascunho();
+    }
+    prontoParaSalvar.current = true;
+  }, []);
+
+  // ─── Salva o rascunho a cada mudança ─────────────────────────────────────
+  // 🔴 É ISTO que resolve o pedido: o líder preenche ao longo do turno e o app
+  // pode fechar, cair ou o celular reiniciar sem perder nada. Não há botão de
+  // salvar de propósito, porque botão de salvar é coisa que se esquece de
+  // apertar justamente no dia em que o celular morre.
+  useEffect(() => {
+    if (!prontoParaSalvar.current) return;
+    const salvoEm = new Date().toISOString();
+    salvarRascunho({
+      salvoEm,
+      data: formDate,
+      turno: formShift,
+      lider: formLeader,
+      campos: {
+        formDate, formShift, formLeader, formHR, formPendencias, formOcorrencias,
+        formRentals, formGseOut, formGseIn, formFlights, formTransporte,
+        formBriefing, formDebriefing, formKmSpin,
+      },
+    });
+    setRascunhoSalvoEm(salvoEm);
+  }, [formDate, formShift, formLeader, formHR, formPendencias, formOcorrencias,
+      formRentals, formGseOut, formGseIn, formFlights, formTransporte,
+      formBriefing, formDebriefing, formKmSpin]);
 
   // Regra de data automática: se o turno não for madrugada, reseta para hoje
   useEffect(() => {
@@ -126,22 +223,48 @@ const AppInner: React.FC = () => {
     setFormTransporte([]);
     setFormBriefing({ ativo: false, inicio: '', fim: '' });
     setFormDebriefing({ ativo: false, inicio: '', fim: '' });
+    setFormKmSpin({ inicial: '', final: '' });
+    // 🔑 O rascunho morre junto com o formulário. Ele existe pra atravessar o
+    // turno, e turno entregue não tem mais rascunho: deixar sobrando faria o
+    // próximo turno abrir com o relatório do anterior dentro.
+    apagarRascunho();
+    setRascunhoSalvoEm(null);
+    setRascunhoRestaurado(null);
   }, []);
 
+  // 🔑 Cada lista que chega do banco é ESPELHADA no celular, e quando a busca
+  // falha o app cai no espelho em vez de ficar vazio. Sem isto o líder abre o
+  // app sem sinal e não tem o próprio nome pra escolher, nem a frota, nem as
+  // companhias: o formulário aparece e não dá pra preencher nada.
+  // ⚠️ O espelho só é reescrito quando vem lista NÃO VAZIA. Uma resposta vazia
+  // por falha de rede apagaria o espelho bom e deixaria o líder pior do que
+  // antes de ter internet.
   const fetchData = useCallback(async (isSilent = false) => {
     try {
       if (!isSilent) setLoading(true);
-      
+
       const { data: equips } = await supabase.from('equipamentos').select('*').order('prefixo', { ascending: true });
-      if (equips) setFleetDetails(equips);
+      if (equips && equips.length) { setFleetDetails(equips); salvarLocal('frota', equips); }
+      else setFleetDetails(lerLocal<any[]>('frota', []));
 
       const { data: leadersData } = await supabase.from('lideres').select('*').order('nome', { ascending: true });
-      if (leadersData) setLeaders(leadersData);
+      if (leadersData && leadersData.length) { setLeaders(leadersData); salvarLocal('lideres', leadersData); }
+      else setLeaders(lerLocal<any[]>('lideres', []));
 
       const { data: airlinesData } = await supabase.from('companhias_aereas').select('nome').order('nome', { ascending: true });
-      if (airlinesData) setAirlines(airlinesData.map(a => a.nome));
+      if (airlinesData && airlinesData.length) {
+        const nomes = airlinesData.map(a => a.nome);
+        setAirlines(nomes); salvarLocal('companhias', nomes);
+      } else setAirlines(lerLocal<string[]>('companhias', []));
 
-    } catch (err) { console.error(err); } finally { if (!isSilent) setLoading(false); }
+    } catch (err) {
+      // Sem rede o Supabase estoura antes de devolver qualquer coisa, e é aqui
+      // que o espelho salva o turno.
+      console.error(err);
+      setFleetDetails(lerLocal<any[]>('frota', []));
+      setLeaders(lerLocal<any[]>('lideres', []));
+      setAirlines(lerLocal<string[]>('companhias', []));
+    } finally { if (!isSilent) setLoading(false); }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -232,6 +355,10 @@ const AppInner: React.FC = () => {
         gse_retornados: formGseIn,
         tem_equipamento_enviado: formGseOut.length > 0,
         tem_equipamento_retornado: formGseIn.length > 0,
+        // 🔑 Vazio vira NULL, nunca 0: o painel precisa separar "o líder não
+        // preencheu" de "o carro não rodou". Zero seria a segunda coisa.
+        km_spin_inicial: formKmSpin.inicial.trim() === '' ? null : Number(formKmSpin.inicial),
+        km_spin_final: formKmSpin.final.trim() === '' ? null : Number(formKmSpin.final),
         briefing_inicio: formBriefing.ativo ? (formBriefing.inicio || null) : null,
         briefing_fim: formBriefing.ativo ? (formBriefing.fim || null) : null,
         debriefing_inicio: formDebriefing.ativo ? (formDebriefing.inicio || null) : null,
@@ -251,6 +378,15 @@ const AppInner: React.FC = () => {
   // abrir o WhatsApp. Se o banco falhar, o líder continua na prévia e tenta de novo.
   const handleConfirmSend = async (): Promise<boolean> => {
     if (!reportPayload) return false;
+    // 🔑 Sem rede, nem tenta. A regra da casa continua a mesma: se a gravação
+    // falhar, o WhatsApp não abre, porque mandar no grupo um relatório que não
+    // existe no sistema é pior que não mandar. O que muda é a EXPLICAÇÃO: sem
+    // isto o líder levava um erro de banco e não entendia que era a internet,
+    // nem que o que ele digitou está guardado.
+    if (!navigator.onLine) {
+      toast('Sem internet. O relatório está guardado no aparelho: envie quando a rede voltar.', 'error');
+      return false;
+    }
     setIsSubmitting(true);
     try {
       const { error } = await supabase.from('relatorios_consolidados').insert([reportPayload]);
@@ -414,6 +550,46 @@ const AppInner: React.FC = () => {
               isSubmitting={isSubmitting}
             />
           ) : (
+            <div className="h-full flex flex-col gap-2 overflow-hidden">
+              {/* ── Estado da rede e do rascunho ──
+                  Fica no App e não dentro do formulário de propósito: o
+                  NewReportTab é o arquivo que já foi revertido uma vez, e o
+                  aviso não precisa estar lá dentro pra ser visto. */}
+              {estaOffline && (
+                <div className="flex-shrink-0 flex items-start gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-600 px-3 py-2 rounded-sm">
+                  <WifiOff size={14} className="mt-[2px] flex-shrink-0" />
+                  <p className="text-[9px] font-black uppercase italic leading-relaxed">
+                    Sem internet. Pode preencher normalmente, que fica guardado no aparelho.
+                    O envio pelo WhatsApp só funciona quando a rede voltar.
+                  </p>
+                </div>
+              )}
+              {rascunhoRestaurado && (
+                <div className="flex-shrink-0 flex items-center gap-2 bg-blue-500/10 border border-blue-500/40 text-blue-600 px-3 py-2 rounded-sm">
+                  <Save size={14} className="flex-shrink-0" />
+                  <p className="flex-1 text-[9px] font-black uppercase italic leading-relaxed">
+                    Recuperamos o que você já tinha preenchido, de {formatarHoraRascunho(rascunhoRestaurado)}
+                  </p>
+                  <button
+                    onClick={() => { resetForm(); }}
+                    className="flex-shrink-0 text-[9px] font-black uppercase italic underline"
+                  >
+                    Começar do zero
+                  </button>
+                </div>
+              )}
+              {!rascunhoRestaurado && rascunhoSalvoEm && (
+                <p className="flex-shrink-0 text-[8px] font-black uppercase italic opacity-30 px-1">
+                  Guardado no aparelho às {formatarHoraRascunho(rascunhoSalvoEm)}
+                </p>
+              )}
+            {/* 🔴 ESTA CAIXA NÃO É ENFEITE. A raiz do NewReportTab é `h-full`,
+                ou seja, 100% da ALTURA DO PAI. Solto aqui dentro, ele mediria a
+                caixa inteira e ignoraria os avisos acima, empurrando o rodapé
+                com o botão de finalizar pra fora da tela, justamente quando o
+                líder está offline. `flex-1 min-h-0` dá a ele uma altura própria
+                de que sobrar, e o `h-full` de dentro passa a medir essa. */}
+            <div className="flex-1 min-h-0">
             <NewReportTab
               themeClasses={themeClasses}
               formDate={formDate} setFormDate={setFormDate}
@@ -452,7 +628,10 @@ const AppInner: React.FC = () => {
               handleAddEquipamento={handleAddEquipamento}
               formBriefing={formBriefing} setFormBriefing={setFormBriefing}
               formDebriefing={formDebriefing} setFormDebriefing={setFormDebriefing}
+              formKmSpin={formKmSpin} setFormKmSpin={setFormKmSpin}
             />
+            </div>
+            </div>
           )
         ) : (
           // Desktop: sempre um dashboard

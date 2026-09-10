@@ -5,6 +5,7 @@ import {
   ResponsiveContainer, Cell,
 } from 'recharts';
 import { supabase } from './supabase';
+import HorasExtras from './HorasExtras';
 import { DollarSign, Clock, Plane, Calendar, X, TrendingUp, Scale, AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import {
   hoursBilled, calcMinutes, fmtBRL, fmtShortDate, fmtFullDate,
@@ -329,7 +330,7 @@ const GerenciaDashboard: React.FC = () => {
   const [expandedMaint, setExpandedMaint] = useState<any | null>(null);
   // O painel da Gerência é o dele: fica sempre à mostra, sem guia. O único
   // desvio é Receita x Custos, que é assunto do gerente e não do dia a dia.
-  const [painel, setPainel] = useState<'locacoes' | 'receita'>('locacoes');
+  const [painel, setPainel] = useState<'locacoes' | 'receita' | 'horas'>('locacoes');
   const [precosAlocacao, setPrecosAlocacao] = useState<Map<string, number>>(new Map());
   const [combustivel, setCombustivel] = useState<any[]>([]);
   const [formCombustivel, setFormCombustivel] = useState<null | { data: string; tipo: 'GASOLINA' | 'DIESEL'; litros: string }>(null);
@@ -1127,7 +1128,9 @@ const GerenciaDashboard: React.FC = () => {
 
       {/* ── Header row ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
-        {painel === 'locacoes' ? (
+        {/* Horas Extras traz as próprias pílulas, que falam de hora e não de
+            dinheiro: as daqui ficariam mentindo sobre o que a tela mostra. */}
+        {painel === 'horas' ? null : painel === 'locacoes' ? (
           <>
             <Pill label="Total Locação" value={fmtBRL(totalCost)} icon={<DollarSign size={16} />} />
             <Pill label="Horas Cobradas" value={`${totalUnits}h`} icon={<Clock size={16} />} />
@@ -1161,7 +1164,31 @@ const GerenciaDashboard: React.FC = () => {
           {painel === 'receita' ? 'Voltar ao painel' : 'Alocação x Locação'}
         </button>
 
-        <div ref={pickerRef} style={{ position: 'relative', marginLeft: 'auto' }}>
+        {/* Horas Extras é o segundo desvio, e vive pelas mesmas regras do
+            primeiro: some quando o outro está aberto, e o botão volta pro
+            painel nativo do gerente. */}
+        <button
+          onClick={() => setPainel(p => p === 'horas' ? 'locacoes' : 'horas')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            background: painel === 'horas' ? '#1E293B' : '#fff',
+            color: painel === 'horas' ? '#fff' : '#1E293B',
+            border: `1px solid ${painel === 'horas' ? '#1E293B' : '#E2E8F0'}`,
+            borderRadius: 10, padding: '9px 14px', cursor: 'pointer',
+            fontSize: 13, fontWeight: 600, flexShrink: 0, transition: 'all 0.15s ease',
+          }}
+        >
+          <Clock size={14} />
+          {painel === 'horas' ? 'Voltar ao painel' : 'Horas Extras'}
+        </button>
+
+        {/* O seletor de período some em Horas Extras: aquela tela lê a
+            planilha, não o banco, e tem o próprio filtro de ano. Deixar o
+            calendário à mostra sem efeito nenhum seria pior que não ter. */}
+        <div ref={pickerRef} style={{
+          position: 'relative', marginLeft: 'auto',
+          display: painel === 'horas' ? 'none' : 'block',
+        }}>
           <button onClick={() => setShowPicker(v => !v)} style={{
             display: 'flex', alignItems: 'center', gap: 6, background: '#fff',
             border: '1px solid #E2E8F0', borderRadius: 8, padding: '7px 14px',
@@ -1178,7 +1205,12 @@ const GerenciaDashboard: React.FC = () => {
         </div>
       </div>
 
-      {loading ? (
+      {painel === 'horas' ? (
+        // Fora do `loading`: esta tela não espera o Supabase, porque não lê
+        // nada dele. Ela tem o próprio carregamento, o próprio erro e a
+        // própria fonte.
+        <HorasExtras />
+      ) : loading ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <p style={{ color: '#94A3B8', fontWeight: 600 }}>Carregando...</p>
         </div>

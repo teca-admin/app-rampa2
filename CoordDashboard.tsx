@@ -5,7 +5,7 @@ import {
   ResponsiveContainer, Cell,
 } from 'recharts';
 import { supabase } from './supabase';
-import { Plane, MessageSquare, Users, UserX, Calendar, CheckSquare } from 'lucide-react';
+import { Plane, MessageSquare, Users, UserX, Calendar, CheckSquare, Car } from 'lucide-react';
 import {
   fmtShortDate, fmtFullDate, todayStr, firstDayOfCurrentMonth, shiftLabel,
   ChartTooltip, DateRangePicker, tableStyles,
@@ -111,6 +111,40 @@ const CoordDashboard: React.FC = () => {
   }, [reports]);
 
   // ── Briefing/Debriefing records ───────────────────────────────────────────
+  // ─── Km do SPIN, pedido do coordenador em 10/09/2026 ───────────────────────
+  // Ele quer saber quanto o carro roda por turno, qual turno usa mais e em que
+  // média. A ordem da tabela é pelo TOTAL de km, porque é ela que responde
+  // "qual turno mais usa" sem obrigar ninguém a comparar número com o dedo.
+  //
+  // 🔑 O preenchimento é opcional (decisão dele), então "sem km informado" é um
+  // número que a tela MOSTRA: sem ele, um turno que ninguém preencheu ficaria
+  // indistinguível de um turno em que o carro não rodou, e a média mentiria
+  // pra mais sem nada avisando.
+  //
+  // ⚠️ Relatório com final MENOR que o inicial é dígito trocado e não entra na
+  // conta. O app novo não deixa gravar assim, mas o histórico pode ter, e uma
+  // subtração negativa derrubaria o total do período calada.
+  const kmSpin = useMemo(() => {
+    const porTurno = new Map<string, { turnos: number; km: number }>();
+    let semKm = 0, total = 0, comKm = 0;
+    reports.forEach(r => {
+      const ini = r.km_spin_inicial, fim = r.km_spin_final;
+      const valido = ini !== null && ini !== undefined
+        && fim !== null && fim !== undefined && fim >= ini;
+      if (!valido) { semKm++; return; }
+      const rodados = fim - ini;
+      const chave = String(r.turno || '');
+      const acc = porTurno.get(chave) || { turnos: 0, km: 0 };
+      acc.turnos += 1; acc.km += rodados;
+      porTurno.set(chave, acc);
+      total += rodados; comKm++;
+    });
+    const linhas = [...porTurno.entries()]
+      .map(([turno, v]) => ({ turno, ...v, media: v.turnos > 0 ? v.km / v.turnos : 0 }))
+      .sort((a, b) => b.km - a.km);
+    return { linhas, semKm, total, comKm };
+  }, [reports]);
+
   const briefDebriefRecords = useMemo(() =>
     reports.filter(r => r.briefing_inicio || r.debriefing_inicio), [reports]);
 
@@ -129,6 +163,7 @@ const CoordDashboard: React.FC = () => {
         <Pill label="Debriefings" value={String(debriefings)} icon={<CheckSquare size={16} />} />
         <Pill label="Transportes" value={String(totalTransport)} icon={<Users size={16} />} />
         <Pill label="Faltas" value={String(faltas.length)} icon={<UserX size={16} />} accent={faltas.length > 0} />
+        <Pill label="Km do SPIN" value={`${kmSpin.total.toLocaleString('pt-BR')} km`} icon={<Car size={16} />} />
         <div ref={pickerRef} style={{ position: 'relative', marginLeft: 'auto' }}>
           <button onClick={() => setShowPicker(v => !v)} style={{
             display: 'flex', alignItems: 'center', gap: 6, background: '#fff',
@@ -199,8 +234,10 @@ const CoordDashboard: React.FC = () => {
             </ChartCard>
           </div>
 
-          {/* ── Row 2: Briefings table + Faltas table ── */}
-          <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {/* ── Row 2: Briefings + Faltas + Km do SPIN ──
+              A terceira coluna entrou em 10/09/2026. Ela é mais estreita que as
+              outras duas de propósito: são no máximo 4 linhas, uma por turno. */}
+          <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr 0.8fr', gap: 12 }}>
 
             <TableCard title="Briefings e Debriefings" badge={briefDebriefRecords.length}>
               {briefDebriefRecords.length === 0 ? (
@@ -273,6 +310,52 @@ const CoordDashboard: React.FC = () => {
                     <tr>
                       <td colSpan={4} style={{ ...tableStyles.tfootTd, fontSize: 12, padding: '10px 12px' }}>
                         Total: {faltas.length} falta(s) no período
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </TableCard>
+
+            <TableCard title="Km do SPIN por turno">
+              {kmSpin.comKm === 0 ? (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 14px' }}>
+                  <p style={{ color: '#94A3B8', fontSize: 13, textAlign: 'center' }}>
+                    Nenhum turno com km informado no período
+                  </p>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
+                  <thead style={{ position: 'sticky', top: 0 }}>
+                    <tr>
+                      {['Turno', 'Turnos', 'Km total', 'Média'].map((h, i) => (
+                        <th key={h} style={{ ...tableStyles.th, textAlign: i === 0 ? 'left' : 'right', fontSize: 10, padding: '8px 10px' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {kmSpin.linhas.map((l, i) => (
+                      <tr key={l.turno} style={{ background: i % 2 === 0 ? '#fff' : '#F8FAFC' }}>
+                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '9px 10px', fontWeight: 600 }}>
+                          {shiftLabel(l.turno)}
+                        </td>
+                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '9px 10px', textAlign: 'right', color: '#64748B' }}>
+                          {l.turnos}
+                        </td>
+                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '9px 10px', textAlign: 'right', fontWeight: 700 }}>
+                          {l.km.toLocaleString('pt-BR')} km
+                        </td>
+                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '9px 10px', textAlign: 'right', fontWeight: 700, color: '#2563EB' }}>
+                          {Math.round(l.media).toLocaleString('pt-BR')} km
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={4} style={{ ...tableStyles.tfootTd, fontSize: 11, padding: '10px' }}>
+                        {kmSpin.comKm} turno(s) com km informado
+                        {kmSpin.semKm > 0 && `, ${kmSpin.semKm} sem informar`}
                       </td>
                     </tr>
                   </tfoot>

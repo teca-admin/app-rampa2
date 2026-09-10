@@ -1,0 +1,92 @@
+SUBIDA DO RAMPCONTROLL  ·  10/09/2026
+=====================================
+
+Esta pasta tem SO o que mudou em relacao ao que esta no ar hoje.
+Sao 10 arquivos: 9 pra subir e 1 pra apagar la no GitHub.
+
+
+O QUE VAI JUNTO NESTA SUBIDA
+----------------------------
+1. Km do SPIN (inicial e final) no relatorio do lider, na mensagem do
+   WhatsApp e no painel da Coordenacao.
+2. O app funcionando offline, pro lider preencher ao longo do turno.
+3. A guia Horas Extras refeita, que ja estava pronta e nao tinha subido.
+
+
+ANTES DE SUBIR
+--------------
+O SQL (km_spin.sql) JA FOI RODADO no banco em 10/09, e conferido.
+Nao precisa rodar de novo. O arquivo sobe so pra ficar guardado no
+repositorio junto com o resto.
+
+
+PASSO 1  ·  SUBIR OS 9 ARQUIVOS
+-------------------------------
+Estes vao na RAIZ do repositorio, por cima dos que ja existem:
+
+   App.tsx
+   CoordDashboard.tsx
+   GerenciaDashboard.tsx
+   HorasExtras.tsx                 (novo)
+   NewReportTab.tsx
+   ReportPreview.tsx
+   armazenamentoLocal.ts           (novo)
+   km_spin.sql                     (novo)
+   trava_relatorio_duplicado.sql   (novo)
+
+E este vai DENTRO DA PASTA public:
+
+   public/sw.js                    (novo, e a pasta public tambem e nova)
+
+   ATENCAO NESTE: o arquivo TEM QUE FICAR dentro de public/.
+   Se ele cair na raiz, a Vite nao copia ele pro site publicado e o
+   app continua sem funcionar offline, que e o defeito que esta
+   subida veio consertar. Arrastando a pasta public inteira pro
+   GitHub, o caminho se mantem sozinho.
+
+
+PASSO 2  ·  APAGAR 1 ARQUIVO NO GITHUB
+--------------------------------------
+   sw.js   (o que esta na RAIZ do repositorio)
+
+Ele nao sumiu, mudou de lugar: agora e o public/sw.js do passo 1.
+Subir o novo NAO apaga o antigo sozinho.
+
+Como apagar: abrir o arquivo sw.js no GitHub, clicar nos tres
+pontinhos do canto direito e escolher Delete file, depois confirmar
+o commit.
+
+Se este passo for esquecido, o site continua funcionando, mas fica
+uma copia velha e confusa na raiz do repositorio.
+
+
+PASSO 3  ·  ESPERAR A VERCEL
+----------------------------
+Ela republica sozinha depois do commit, leva poucos minutos.
+
+
+PASSO 4  ·  ME AVISAR
+---------------------
+Eu confiro na producao, sem depender do que a tela disser:
+
+   - se /sw.js passou a responder 200 (hoje responde 404)
+   - se o pacote publicado tem a secao do Km do SPIN
+   - se a guia Horas Extras nova esta la
+   - se o manifest continua sendo servido
+
+So depois disso a branch main recebe o merge, seguindo a regra da
+casa de que a main so espelha o que ja esta no ar.
+
+
+O QUE ESPERAR DEPOIS DE PUBLICADO
+---------------------------------
+O offline passa a valer a partir da SEGUNDA vez que o lider abrir o
+app, porque e na primeira que o service worker se instala. Na primeira
+abertura depois desta subida, ainda e como hoje.
+
+Daqui pra frente, em toda publicacao nova, o lider vai ver a versao
+anterior uma vez e a seguinte ja vem atualizada. E o preco de o app
+abrir instantaneo onde o sinal e ruim.
+
+O grupo do WhatsApp passa a receber a secao 10 em todo relatorio,
+inclusive dizendo "Km nao informado" quando o lider nao preencher.

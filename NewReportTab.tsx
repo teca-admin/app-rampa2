@@ -47,6 +47,8 @@ interface NewReportTabProps {
   handleAddEquipamento: (prefixo: string, nome: string) => void;
   formBriefing: { ativo: boolean; inicio: string; fim: string };
   setFormBriefing: (b: any) => void;
+  formKmSpin: { inicial: string; final: string };
+  setFormKmSpin: (k: any) => void;
   formDebriefing: { ativo: boolean; inicio: string; fim: string };
   setFormDebriefing: (d: any) => void;
 }
@@ -108,7 +110,27 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
   const isGseInValid = props.formGseIn.every(g => g.prefixo);
   const isHRValid = !props.formHR.falta || (props.formHR.falta && props.formHR.detalhe_falta?.trim());
 
-  const canSubmit = props.formLeader && isRentalsValid && isFlightsValid && isTransporteValid && isGseOutValid && isGseInValid && isHRValid;
+  // 🔑 Km do SPIN: vazio é permitido, MEIO PREENCHIDO não. Sem o par não dá pra
+  // calcular quanto rodou, e o painel do coordenador receberia uma linha que
+  // não responde nada. Final menor que inicial é dígito trocado: odômetro de
+  // carro não anda pra trás.
+  const kmIniTxt = props.formKmSpin.inicial.trim();
+  const kmFimTxt = props.formKmSpin.final.trim();
+  const kmIniNum = kmIniTxt === '' ? null : Number(kmIniTxt);
+  const kmFimNum = kmFimTxt === '' ? null : Number(kmFimTxt);
+  const kmSpinErro =
+    (kmIniTxt === '') !== (kmFimTxt === '')
+      ? 'Preencha os dois km, ou deixe os dois em branco'
+      : kmIniNum !== null && kmFimNum !== null && !Number.isFinite(kmIniNum + kmFimNum)
+        ? 'Km inválido'
+        : kmIniNum !== null && kmFimNum !== null && kmFimNum < kmIniNum
+          ? 'O km final não pode ser menor que o inicial'
+          : '';
+  const kmSpinRodados =
+    !kmSpinErro && kmIniNum !== null && kmFimNum !== null ? kmFimNum - kmIniNum : null;
+  const isKmSpinValid = kmSpinErro === '';
+
+  const canSubmit = props.formLeader && isRentalsValid && isFlightsValid && isTransporteValid && isGseOutValid && isGseInValid && isHRValid && isKmSpinValid;
   const isDateLocked = props.formShift !== 'madrugada';
 
   return (
@@ -562,6 +584,60 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
                )}
              </div>
            </div>
+         </div>
+
+         {/* KM DO SPIN
+             🔑 Entrou como seção 10, DEPOIS do briefing, de propósito: numerar
+             no meio empurraria todas as seguintes e o líder que já decorou a
+             ordem do formulário perderia a referência.
+             🔴 Preenchimento OPCIONAL, decisão dele em 10/09/2026. O que não é
+             opcional é o PAR: ou os dois números, ou nenhum, senão "rodados"
+             não existe e o painel receberia meia informação. */}
+         <div className={`${themeClasses.bgCard} border ${themeClasses.border} p-5 shadow-2xl rounded-sm`}>
+           <div className="flex items-center gap-3 mb-2">
+             <div className="w-1.5 h-6 bg-amber-500"></div>
+             <h4 className="text-[10px] font-black italic uppercase text-amber-500 tracking-widest">10 - KM DO SPIN</h4>
+           </div>
+           <p className="text-[8px] font-black uppercase italic opacity-40 mb-4 leading-relaxed">
+             Anote o odômetro do carro no início e no fim do turno. Se o SPIN não rodou, deixe os dois em branco.
+           </p>
+
+           <div className="grid grid-cols-2 gap-3">
+             <div className="space-y-1">
+               <label className="text-[7px] font-black text-slate-500 uppercase block">Km inicial</label>
+               <input
+                 type="number"
+                 inputMode="numeric"
+                 placeholder="0"
+                 value={props.formKmSpin.inicial}
+                 onChange={e => props.setFormKmSpin({ ...props.formKmSpin, inicial: e.target.value })}
+                 className="bg-slate-900/20 border border-white/5 p-2 font-black text-[12px] text-amber-500 w-full rounded-sm"
+               />
+             </div>
+             <div className="space-y-1">
+               <label className="text-[7px] font-black text-slate-500 uppercase block">Km final</label>
+               <input
+                 type="number"
+                 inputMode="numeric"
+                 placeholder="0"
+                 value={props.formKmSpin.final}
+                 onChange={e => props.setFormKmSpin({ ...props.formKmSpin, final: e.target.value })}
+                 className="bg-slate-900/20 border border-white/5 p-2 font-black text-[12px] text-amber-500 w-full rounded-sm"
+               />
+             </div>
+           </div>
+
+           {/* O resultado aparece na hora: é a conferência mais barata que
+               existe contra dígito trocado, porque o líder sabe de cabeça se
+               rodou 40 km ou 400 no turno. */}
+           {kmSpinRodados !== null && (
+             <p className="mt-3 text-[9px] font-black uppercase italic text-emerald-500">
+               {kmSpinRodados.toLocaleString('pt-BR')} km rodados neste turno
+             </p>
+           )}
+           {kmSpinErro && (
+             <p className="mt-3 text-[9px] font-black uppercase italic text-red-500">{kmSpinErro}</p>
+           )}
          </div>
 
          {/* CADASTROS RÁPIDOS */}

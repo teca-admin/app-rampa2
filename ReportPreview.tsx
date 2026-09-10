@@ -112,6 +112,20 @@ export const buildMessage = (report: any): string => {
   } else {
     message += `Nenhum briefing/debriefing registrado.\n`;
   }
+  message += `\n`;
+
+  // Seção 10, nascida em 10/09/2026 com o Km do SPIN. 🔑 Quando o líder não
+  // preenche, a linha DIZ que não foi informado em vez de sumir: seção que
+  // some do relatório faz quem lê achar que a versão do app é outra.
+  message += `*10 - KM DO SPIN:* 🚗\n`;
+  const kmIni = report.km_spin_inicial;
+  const kmFim = report.km_spin_final;
+  if (kmIni !== null && kmIni !== undefined && kmFim !== null && kmFim !== undefined) {
+    message += `• ${kmIni.toLocaleString('pt-BR')} km a ${kmFim.toLocaleString('pt-BR')} km\n`;
+    message += `• *Rodados no turno:* ${(kmFim - kmIni).toLocaleString('pt-BR')} km\n`;
+  } else {
+    message += `Km não informado.\n`;
+  }
 
   return message;
 };
