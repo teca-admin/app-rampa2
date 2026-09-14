@@ -15,6 +15,13 @@ import ReportPreview from './ReportPreview';
 import { ToastProvider, useToast, SuccessScreen } from './CustomToast';
 import GerenciaDashboard from './GerenciaDashboard';
 import CoordDashboard from './CoordDashboard';
+import AvisoHorarios from './AvisoHorarios';
+import { paresInvertidosDoFormulario, ParInvertido } from './horarios';
+import ColetaProva from './ColetaProva';
+import {
+  ProvaLocal, TipoProva, enviarProva, gravarProvaLocal, lerProvaLocal,
+  limparProvasLocais, provaVazia, rotuloProva,
+} from './provas';
 
 // --- HELPERS ---
 const getLocalDateString = () => {
@@ -113,6 +120,41 @@ const AppInner: React.FC = () => {
   // como número porque o campo pode estar vazio, e `0` de campo vazio viraria
   // odômetro zerado no banco. A conversão pra número acontece só no payload.
   const [formKmSpin, setFormKmSpin] = useState({ inicial: '', final: '' });
+  // OBS do turno, texto livre e opcional, na seção 10. Pedido dele em 11/09/2026.
+  const [formObs, setFormObs] = useState('');
+  // ─── A prova do briefing e do debriefing, pedido dele em 14/09/2026 ──────
+  // 🔑 Fica FORA do rascunho, em chave própria do localStorage. O rascunho é
+  // salvo a cada tecla, e carregar a foto reduzida junto faria o formulário
+  // engasgar a cada letra digitada. Por isso a leitura inicial é direta do
+  // aparelho: quem restaura a prova não é a restauração do rascunho.
+  const [provaBriefing, setProvaBriefing] = useState<ProvaLocal>(() => lerProvaLocal('briefing'));
+  const [provaDebriefing, setProvaDebriefing] = useState<ProvaLocal>(() => lerProvaLocal('debriefing'));
+  const [provaAberta, setProvaAberta] = useState<TipoProva | null>(null);
+
+  const atualizarProva = useCallback((tipo: TipoProva, prova: ProvaLocal) => {
+    if (tipo === 'briefing') setProvaBriefing(prova); else setProvaDebriefing(prova);
+    // Grava na hora, e não num efeito: a assinatura recolhida some se o Android
+    // matar o app no instante seguinte, e é gente que já foi embora.
+    if (!gravarProvaLocal(tipo, prova)) {
+      toast('Sem espaço no aparelho pra guardar a prova. Finalize o turno antes de continuar.', 'error');
+    }
+  }, [toast]);
+
+  // ─── Horário invertido (início maior que o fim), entrou em 11/09/2026 ────
+  // O caso que motivou: locação 19:23 → 18:26 contada como 23h03 e cobrada
+  // R$ 4.320. O aviso abre na hora em que o par fica invertido e, de novo, no
+  // "Finalizar turno" se ainda houver par assim sem confirmação. O líder PODE
+  // seguir, porque 23:50 → 01:10 é real na virada do 3º turno.
+  //
+  // Duas listas de chaves, e a chave carrega os horários (mudou o horário,
+  // é outro aviso):
+  // - perguntados: já apareceu o aviso, qualquer que tenha sido a resposta.
+  //   Sem isto, "Corrigir" fecharia o aviso e ele abriria de novo na mesma
+  //   hora, porque os horários continuam invertidos até o líder mexer.
+  // - confirmados: ele disse "seguir assim mesmo". Só estes passam no envio.
+  const [avisoHorarios, setAvisoHorarios] = useState<{ itens: ParInvertido[]; segurandoEnvio: boolean } | null>(null);
+  const [horariosPerguntados, setHorariosPerguntados] = useState<Set<string>>(new Set());
+  const [horariosConfirmados, setHorariosConfirmados] = useState<Set<string>>(new Set());
 
   // ─── Offline, entrou em 10/09/2026 ────────────────────────────────────────
   // 🔴 `navigator.onLine` só sabe dizer que NÃO HÁ REDE. Ele responde `true`
@@ -165,6 +207,7 @@ const AppInner: React.FC = () => {
       if (c.formBriefing) setFormBriefing(c.formBriefing);
       if (c.formDebriefing) setFormDebriefing(c.formDebriefing);
       if (c.formKmSpin) setFormKmSpin(c.formKmSpin);
+      if (typeof c.formObs === 'string') setFormObs(c.formObs);
       setRascunhoSalvoEm(r.salvoEm);
       setRascunhoRestaurado(r.salvoEm);
     } else if (r) {
@@ -191,13 +234,35 @@ const AppInner: React.FC = () => {
       campos: {
         formDate, formShift, formLeader, formHR, formPendencias, formOcorrencias,
         formRentals, formGseOut, formGseIn, formFlights, formTransporte,
-        formBriefing, formDebriefing, formKmSpin,
+        formBriefing, formDebriefing, formKmSpin, formObs,
       },
     });
     setRascunhoSalvoEm(salvoEm);
   }, [formDate, formShift, formLeader, formHR, formPendencias, formOcorrencias,
       formRentals, formGseOut, formGseIn, formFlights, formTransporte,
-      formBriefing, formDebriefing, formKmSpin]);
+      formBriefing, formDebriefing, formKmSpin, formObs]);
+
+  // ─── Abre o aviso assim que um par de horários fica invertido ────────────
+  // Roda a cada mudança nos quatro lugares que têm início e fim (locações,
+  // voos, briefing e debriefing) e abre UM aviso por vez, só pra par que ainda
+  // não foi perguntado. Também dispara ao restaurar o rascunho, e é bom que
+  // dispare: o par invertido de ontem continua invertido hoje.
+  useEffect(() => {
+    if (avisoHorarios) return;
+    const pendente = paresInvertidosDoFormulario({ formRentals, formFlights, formBriefing, formDebriefing })
+      .find(p => !horariosPerguntados.has(p.chave));
+    if (pendente) setAvisoHorarios({ itens: [pendente], segurandoEnvio: false });
+  }, [formRentals, formFlights, formBriefing, formDebriefing, horariosPerguntados, avisoHorarios]);
+
+  const responderAvisoHorarios = (seguir: boolean) => {
+    if (!avisoHorarios) return;
+    const chaves = avisoHorarios.itens.map(p => p.chave);
+    setHorariosPerguntados(prev => new Set([...prev, ...chaves]));
+    if (seguir) setHorariosConfirmados(prev => new Set([...prev, ...chaves]));
+    const segurava = avisoHorarios.segurandoEnvio;
+    setAvisoHorarios(null);
+    if (seguir && segurava) montarPrevia();
+  };
 
   // Regra de data automática: se o turno não for madrugada, reseta para hoje
   useEffect(() => {
@@ -224,6 +289,16 @@ const AppInner: React.FC = () => {
     setFormBriefing({ ativo: false, inicio: '', fim: '' });
     setFormDebriefing({ ativo: false, inicio: '', fim: '' });
     setFormKmSpin({ inicial: '', final: '' });
+    setFormObs('');
+    // A prova morre junto com o formulário, pelo mesmo motivo do rascunho:
+    // sobrando, o turno seguinte abriria com a lista de presença do anterior.
+    setProvaBriefing(provaVazia());
+    setProvaDebriefing(provaVazia());
+    setProvaAberta(null);
+    limparProvasLocais();
+    setAvisoHorarios(null);
+    setHorariosPerguntados(new Set());
+    setHorariosConfirmados(new Set());
     // 🔑 O rascunho morre junto com o formulário. Ele existe pra atravessar o
     // turno, e turno entregue não tem mais rascunho: deixar sobrando faria o
     // próximo turno abrir com o relatório do anterior dentro.
@@ -257,6 +332,16 @@ const AppInner: React.FC = () => {
         setAirlines(nomes); salvarLocal('companhias', nomes);
       } else setAirlines(lerLocal<string[]>('companhias', []));
 
+      // 🔴 A lista de quem pode assinar entra no espelho JUNTO COM AS OUTRAS, na
+      // abertura do app, e não só quando o líder abre a coleta. A coleta é feita
+      // no pátio, no meio do turno, que é justo onde não tem sinal: esperar o
+      // primeiro toque pra buscar faria o líder abrir a lista de presença sem
+      // ninguém dentro. Aqui o app não usa a lista, só garante que ela está no
+      // aparelho quando precisar.
+      const { data: pessoal } = await supabase
+        .from('funcionarios').select('matricula, nome, funcao, ativo').order('nome', { ascending: true });
+      if (pessoal && pessoal.length) salvarLocal('funcionarios', pessoal);
+
     } catch (err) {
       // Sem rede o Supabase estoura antes de devolver qualquer coisa, e é aqui
       // que o espelho salva o turno.
@@ -282,8 +367,36 @@ const AppInner: React.FC = () => {
   }, [fetchData]);
 
   // PASSO 1: monta o payload e vai para a prévia. Nada é gravado aqui.
-  const handleGoToPreview = async () => {
+  // 🔑 Antes de montar, segura se ainda houver par de horários invertido que
+  // o líder não confirmou. É a segunda chance do aviso: a primeira foi na hora
+  // de digitar, e "Corrigir" sem corrigir de fato chegaria aqui calado.
+  const handleGoToPreview = () => {
     if (!formLeader) { toast('Selecione o Líder!', 'warning'); return; }
+    // 🔴 Briefing ligado exige prova. É o pedido dele de 14/09: a informação do
+    // briefing só vale acompanhada de quem estava e da foto. Segura aqui, e
+    // não na confirmação, porque a essa altura o líder ainda está no pátio,
+    // com as pessoas por perto pra assinar.
+    const semProva = ([['briefing', formBriefing, provaBriefing], ['debriefing', formDebriefing, provaDebriefing]] as const)
+      .filter(([, campo, prova]) => campo.ativo && (!prova.foto || prova.assinaturas.length === 0));
+    if (semProva.length > 0) {
+      const [tipo, , prova] = semProva[0];
+      const falta = !prova.foto && prova.assinaturas.length === 0
+        ? 'a foto e a lista de presença'
+        : (!prova.foto ? 'a foto dos participantes' : 'a lista de presença');
+      toast(`${rotuloProva(tipo)}: falta ${falta}.`, 'warning');
+      setProvaAberta(tipo);
+      return;
+    }
+    const pendentes = paresInvertidosDoFormulario({ formRentals, formFlights, formBriefing, formDebriefing })
+      .filter(p => !horariosConfirmados.has(p.chave));
+    if (pendentes.length > 0) {
+      setAvisoHorarios({ itens: pendentes, segurandoEnvio: true });
+      return;
+    }
+    montarPrevia();
+  };
+
+  const montarPrevia = async () => {
     setIsSubmitting(true);
     try {
       // Buscar cotação do dólar para registros com fornecedor Gol
@@ -359,10 +472,20 @@ const AppInner: React.FC = () => {
         // preencheu" de "o carro não rodou". Zero seria a segunda coisa.
         km_spin_inicial: formKmSpin.inicial.trim() === '' ? null : Number(formKmSpin.inicial),
         km_spin_final: formKmSpin.final.trim() === '' ? null : Number(formKmSpin.final),
+        // Vazio vira NULL: OBS em branco é o caso normal, não é dado.
+        observacoes: formObs.trim() === '' ? null : formObs.trim(),
         briefing_inicio: formBriefing.ativo ? (formBriefing.inicio || null) : null,
         briefing_fim: formBriefing.ativo ? (formBriefing.fim || null) : null,
         debriefing_inicio: formDebriefing.ativo ? (formDebriefing.inicio || null) : null,
         debriefing_fim: formDebriefing.ativo ? (formDebriefing.fim || null) : null,
+        // 🔑 A id da prova entra AQUI, ainda sem o caminho da foto: a foto só
+        // ganha caminho depois de subir, na confirmação. A id, não: ela nasceu
+        // no celular quando o líder abriu a lista, e é por ela que as
+        // assinaturas já gravadas se acham.
+        briefing_prova_id: formBriefing.ativo ? provaBriefing.provaId : null,
+        briefing_foto: null,
+        debriefing_prova_id: formDebriefing.ativo ? provaDebriefing.provaId : null,
+        debriefing_foto: null,
       };
 
       setReportPayload(payload);
@@ -389,7 +512,44 @@ const AppInner: React.FC = () => {
     }
     setIsSubmitting(true);
     try {
-      const { error } = await supabase.from('relatorios_consolidados').insert([reportPayload]);
+      // ─── A prova sobe ANTES do relatório ───────────────────────────────
+      // 🔑 Nesta ordem de propósito, e é a mesma regra do WhatsApp: relatório
+      // dizendo que houve briefing sem a prova que o acompanha é meia verdade,
+      // e meia verdade gravada é pior que tentar de novo. Falhou, nada é
+      // gravado e tudo continua no aparelho.
+      //
+      // 📌 O que já subiu NÃO volta a subir: a foto guarda o caminho e as
+      // assinaturas gravadas saem da lista local. Uma segunda tentativa manda
+      // só o que faltou, e a trava de "esta pessoa já assinou" cobre o resto.
+      const payload: any = { ...reportPayload };
+
+      for (const [tipo, ativo, prova] of ([
+        ['briefing', formBriefing.ativo, provaBriefing],
+        ['debriefing', formDebriefing.ativo, provaDebriefing],
+      ] as const)) {
+        if (!ativo || (!prova.foto && prova.assinaturas.length === 0)) continue;
+
+        const resultado = await enviarProva(tipo, prova, formLeader);
+        const restante: ProvaLocal = {
+          ...prova,
+          assinaturas: resultado.faltando,
+          fotoArquivo: resultado.fotoArquivo || undefined,
+        };
+        atualizarProva(tipo, restante);
+
+        if (resultado.faltando.length > 0 || !resultado.fotoArquivo) {
+          toast(
+            `A prova do ${rotuloProva(tipo).toLowerCase()} não subiu inteira e o relatório não foi gravado. Tudo continua guardado no aparelho: tente de novo com sinal melhor.`,
+            'error',
+          );
+          return false;
+        }
+
+        payload[`${tipo}_prova_id`] = prova.provaId;
+        payload[`${tipo}_foto`] = resultado.fotoArquivo;
+      }
+
+      const { error } = await supabase.from('relatorios_consolidados').insert([payload]);
       if (error) throw error;
 
       if (formGseOut.length > 0) {
@@ -629,6 +789,9 @@ const AppInner: React.FC = () => {
               formBriefing={formBriefing} setFormBriefing={setFormBriefing}
               formDebriefing={formDebriefing} setFormDebriefing={setFormDebriefing}
               formKmSpin={formKmSpin} setFormKmSpin={setFormKmSpin}
+              formObs={formObs} setFormObs={setFormObs}
+              provaBriefing={provaBriefing} provaDebriefing={provaDebriefing}
+              abrirProva={setProvaAberta}
             />
             </div>
             </div>
@@ -644,6 +807,22 @@ const AppInner: React.FC = () => {
       </footer>
 
       <SuccessScreen open={mobileScreen === 'success'} onClose={handleSuccessClose} />
+      {provaAberta && (
+        <ColetaProva
+          tipo={provaAberta}
+          prova={provaAberta === 'briefing' ? provaBriefing : provaDebriefing}
+          onChange={prova => atualizarProva(provaAberta, prova)}
+          onFechar={() => setProvaAberta(null)}
+        />
+      )}
+      {avisoHorarios && (
+        <AvisoHorarios
+          itens={avisoHorarios.itens}
+          segurandoEnvio={avisoHorarios.segurandoEnvio}
+          onCorrigir={() => responderAvisoHorarios(false)}
+          onSeguir={() => responderAvisoHorarios(true)}
+        />
+      )}
     </div>
   );
 };

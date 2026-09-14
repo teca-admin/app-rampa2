@@ -1,6 +1,22 @@
 
 import React, { useState } from 'react';
 import { Plus, Trash2, Send, RefreshCcw, Handshake, AlertTriangle, Plane, Lock } from 'lucide-react';
+import { horarioInvertido, fmtDuracao } from './horarios';
+import { calcMinutes } from './DashboardUtils';
+import { BotaoProva } from './ColetaProva';
+import { ProvaLocal, TipoProva } from './provas';
+
+// Linha embaixo do par início/fim quando o fim é menor ou igual ao início.
+// É a marca que fica na tela depois que o aviso fecha: o líder que escolheu
+// "Corrigir" precisa achar QUAL par corrigir, e o aviso já não está lá.
+// A conta é a mesma do painel (`calcMinutes`), então o número que ele vê é
+// o que vai ser cobrado.
+const AvisoParInvertido: React.FC<{ inicio: string; fim: string }> = ({ inicio, fim }) =>
+  horarioInvertido(inicio, fim) ? (
+    <p className="mt-2 text-[9px] font-black uppercase italic text-amber-500 flex items-center gap-1">
+      <AlertTriangle size={10} className="flex-shrink-0" /> Fim antes do início: conta {fmtDuracao(calcMinutes(inicio, fim))}
+    </p>
+  ) : null;
 
 interface NewReportTabProps {
   themeClasses: any;
@@ -51,6 +67,12 @@ interface NewReportTabProps {
   setFormKmSpin: (k: any) => void;
   formDebriefing: { ativo: boolean; inicio: string; fim: string };
   setFormDebriefing: (d: any) => void;
+  formObs: string;
+  setFormObs: (o: string) => void;
+  // A prova de cada um dos dois: foto dos participantes e lista de presença.
+  provaBriefing: ProvaLocal;
+  provaDebriefing: ProvaLocal;
+  abrirProva: (tipo: TipoProva) => void;
 }
 
 // Equipamentos segregados por fornecedor (correspondem exatamente à tabela de preços no Supabase)
@@ -373,6 +395,7 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
                       <input type="time" value={loc.fim} onChange={e => props.handleRentalChange(i, 'fim', e.target.value)} className="bg-slate-900/20 border border-white/5 p-2 font-black text-[10px] text-blue-500 w-full rounded-sm" />
                     </div>
                   </div>
+                  <AvisoParInvertido inicio={loc.inicio} fim={loc.fim} />
                 </div>
               ))}
               {props.formRentals.length === 0 && <p className="text-center py-4 text-[9px] font-black uppercase italic opacity-20">Nenhuma locação</p>}
@@ -431,6 +454,7 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
                       <input type="time" value={v.reboque} onChange={e => props.handleFlightChange(i, 'reboque', e.target.value)} className="bg-slate-900/20 p-2 rounded-sm border-none font-black text-xs text-emerald-500 w-full" />
                     </div>
                   </div>
+                  <AvisoParInvertido inicio={v.pouso} fim={v.reboque} />
                 </div>
               ))}
               {props.formFlights.length === 0 && <p className="text-center py-4 text-[9px] font-black uppercase italic opacity-20">Nenhum voo adicionado</p>}
@@ -558,6 +582,11 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
                      <label className="text-[7px] font-black text-slate-500 uppercase block">Fim</label>
                      <input type="time" value={props.formBriefing.fim} onChange={e => props.setFormBriefing({ ...props.formBriefing, fim: e.target.value })} className="bg-slate-900/20 border border-white/5 p-2 font-black text-[10px] text-emerald-500 w-full rounded-sm" />
                    </div>
+                   <AvisoParInvertido inicio={props.formBriefing.inicio} fim={props.formBriefing.fim} />
+                   {/* 🔑 A prova só aparece com o briefing LIGADO. Briefing que
+                       não aconteceu não tem quem assine, e um botão pedindo
+                       foto de nada só faria o líder abrir pra descobrir isso. */}
+                   <BotaoProva tipo="briefing" prova={props.provaBriefing} onAbrir={() => props.abrirProva('briefing')} />
                  </div>
                )}
              </div>
@@ -580,6 +609,8 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
                      <label className="text-[7px] font-black text-slate-500 uppercase block">Fim</label>
                      <input type="time" value={props.formDebriefing.fim} onChange={e => props.setFormDebriefing({ ...props.formDebriefing, fim: e.target.value })} className="bg-slate-900/20 border border-white/5 p-2 font-black text-[10px] text-emerald-500 w-full rounded-sm" />
                    </div>
+                   <AvisoParInvertido inicio={props.formDebriefing.inicio} fim={props.formDebriefing.fim} />
+                   <BotaoProva tipo="debriefing" prova={props.provaDebriefing} onAbrir={() => props.abrirProva('debriefing')} />
                  </div>
                )}
              </div>
@@ -638,6 +669,20 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
            {kmSpinErro && (
              <p className="mt-3 text-[9px] font-black uppercase italic text-red-500">{kmSpinErro}</p>
            )}
+
+           {/* OBS do turno, pedido dele em 11/09/2026. Texto livre e opcional,
+               dentro da seção 10 pra não renumerar nada. Vai pro banco e pra
+               mensagem do WhatsApp; vazio, a mensagem diz "Sem observações". */}
+           <div className="mt-5 pt-4 border-t border-white/5 space-y-1">
+             <label className="text-[7px] font-black text-slate-500 uppercase block">OBS</label>
+             <textarea
+               value={props.formObs}
+               onChange={e => props.setFormObs(e.target.value)}
+               rows={3}
+               placeholder="Alguma observação do turno? Texto livre, opcional."
+               className="bg-slate-900/20 border border-white/5 p-2.5 font-black text-[10px] w-full italic rounded-sm outline-none focus:border-amber-500 transition-colors resize-none"
+             />
+           </div>
          </div>
 
          {/* CADASTROS RÁPIDOS */}

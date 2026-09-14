@@ -10,6 +10,7 @@ import {
   fmtShortDate, fmtFullDate, todayStr, firstDayOfCurrentMonth, shiftLabel,
   ChartTooltip, DateRangePicker, tableStyles,
 } from './DashboardUtils';
+import VerProva, { ProvaAberta } from './VerProva';
 
 // ─── Compact KPI pill ─────────────────────────────────────────────────────────
 const Pill: React.FC<{ label: string; value: string; icon: React.ReactNode; accent?: boolean }> =
@@ -55,6 +56,36 @@ const TableCard: React.FC<{ title: string; children: React.ReactNode; badge?: nu
   </div>
 );
 
+// ─── A célula de horário que abre a prova ────────────────────────────────────
+// Mesma aparência de sempre quando não há prova. Com prova, ganha sublinhado
+// pontilhado e a mão do cursor: é o único aviso de que ali tem mais coisa.
+const CelulaProva: React.FC<{
+  inicio: string | null;
+  fim: string | null;
+  provaId: string | null;
+  onAbrir: () => void;
+}> = ({ inicio, fim, provaId, onAbrir }) => (
+  <td style={{ ...tableStyles.td, fontSize: 12, padding: '8px 10px', textAlign: 'center' }}>
+    {!inicio ? (
+      <span style={{ color: '#94A3B8' }}>—</span>
+    ) : provaId ? (
+      <button
+        onClick={onAbrir}
+        title="Ver a prova: foto e lista de presença"
+        style={{
+          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+          color: '#10B981', fontWeight: 600, fontSize: 12,
+          textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3,
+        }}
+      >
+        {inicio}–{fim || '?'}
+      </button>
+    ) : (
+      <span style={{ color: '#10B981', fontWeight: 600 }}>{inicio}–{fim || '?'}</span>
+    )}
+  </td>
+);
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 const CoordDashboard: React.FC = () => {
   const [startDate, setStartDate] = useState(firstDayOfCurrentMonth());
@@ -62,13 +93,15 @@ const CoordDashboard: React.FC = () => {
   const [showPicker, setShowPicker] = useState(false);
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // A prova aberta na tela. Null é o estado normal: ela só abre por clique.
+  const [prova, setProva] = useState<ProvaAberta | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
       .from('relatorios_consolidados')
-      .select('data, turno, lider, voos, transporte_tripulacao, briefing_inicio, briefing_fim, debriefing_inicio, debriefing_fim, teve_falta, detalhe_falta')
+      .select('data, turno, lider, voos, transporte_tripulacao, briefing_inicio, briefing_fim, debriefing_inicio, debriefing_fim, teve_falta, detalhe_falta, briefing_prova_id, briefing_foto, debriefing_prova_id, debriefing_foto')
       .gte('data', startDate).lte('data', endDate).order('data');
     setReports(data || []);
     setLoading(false);
@@ -259,16 +292,29 @@ const CoordDashboard: React.FC = () => {
                         <td style={{ ...tableStyles.td, fontSize: 12, padding: '8px 10px' }}>{fmtFullDate(r.data)}</td>
                         <td style={{ ...tableStyles.td, fontSize: 12, padding: '8px 10px' }}>{shiftLabel(r.turno)}</td>
                         <td style={{ ...tableStyles.td, fontSize: 12, padding: '8px 10px' }}>{r.lider || '—'}</td>
-                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '8px 10px', textAlign: 'center' }}>
-                          {r.briefing_inicio
-                            ? <span style={{ color: '#10B981', fontWeight: 600 }}>{r.briefing_inicio}–{r.briefing_fim || '?'}</span>
-                            : <span style={{ color: '#94A3B8' }}>—</span>}
-                        </td>
-                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '8px 10px', textAlign: 'center' }}>
-                          {r.debriefing_inicio
-                            ? <span style={{ color: '#10B981', fontWeight: 600 }}>{r.debriefing_inicio}–{r.debriefing_fim || '?'}</span>
-                            : <span style={{ color: '#94A3B8' }}>—</span>}
-                        </td>
+                        {/* 🔑 O HORÁRIO É O BOTÃO. Foi o pedido dele: "clico na
+                            hora e abre a prova". Registro sem prova (todos os
+                            anteriores a 14/09) continua sendo texto comum, sem
+                            sublinhado e sem mão: prometer clique e abrir vazio
+                            é pior que não prometer. */}
+                        <CelulaProva
+                          inicio={r.briefing_inicio} fim={r.briefing_fim}
+                          provaId={r.briefing_prova_id}
+                          onAbrir={() => setProva({
+                            provaId: r.briefing_prova_id, foto: r.briefing_foto || null,
+                            titulo: 'Briefing', horario: `${r.briefing_inicio}–${r.briefing_fim || '?'}`,
+                            subtitulo: `${fmtFullDate(r.data)} · ${shiftLabel(r.turno)} · ${r.lider || 'sem líder'}`,
+                          })}
+                        />
+                        <CelulaProva
+                          inicio={r.debriefing_inicio} fim={r.debriefing_fim}
+                          provaId={r.debriefing_prova_id}
+                          onAbrir={() => setProva({
+                            provaId: r.debriefing_prova_id, foto: r.debriefing_foto || null,
+                            titulo: 'Debriefing', horario: `${r.debriefing_inicio}–${r.debriefing_fim || '?'}`,
+                            subtitulo: `${fmtFullDate(r.data)} · ${shiftLabel(r.turno)} · ${r.lider || 'sem líder'}`,
+                          })}
+                        />
                       </tr>
                     ))}
                   </tbody>
@@ -365,6 +411,8 @@ const CoordDashboard: React.FC = () => {
           </div>
         </>
       )}
+
+      {prova && <VerProva prova={prova} onFechar={() => setProva(null)} />}
     </div>
   );
 };

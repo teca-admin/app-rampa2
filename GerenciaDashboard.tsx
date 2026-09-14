@@ -6,12 +6,13 @@ import {
 } from 'recharts';
 import { supabase } from './supabase';
 import HorasExtras from './HorasExtras';
-import { DollarSign, Clock, Plane, Calendar, X, TrendingUp, Scale, AlertTriangle, Plus, Trash2 } from 'lucide-react';
+import { DollarSign, Clock, Plane, Calendar, X, TrendingUp, Scale, AlertTriangle, Plus, Trash2, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   hoursBilled, calcMinutes, fmtBRL, fmtShortDate, fmtFullDate,
   todayStr, firstDayOfCurrentMonth, shiftLabel,
   ChartTooltip, DateRangePicker, tableStyles,
 } from './DashboardUtils';
+import { incoerenciasDosRelatorios, Incoerencia, chaveLocacao, chaveVoo, fmtDuracao } from './horarios';
 
 // Dias entre duas datas no formato YYYY-MM-DD
 const diasEntre = (de: string, ate: string): number => {
@@ -342,11 +343,24 @@ const GerenciaDashboard: React.FC = () => {
   const [equipStatus, setEquipStatus] = useState<Map<string, string>>(new Map());
   const pickerRef = useRef<HTMLDivElement>(null);
 
+  // ─── Lançamentos com horário que não fecha (11/09/2026) ───────────────────
+  // O painel aponta locação acima de 4h e voo acima de 6h contados (a régua
+  // está em `horarios.ts`, medida no banco). "Vi a notificação" grava no
+  // banco, não no navegador: gerente e coordenador olham de máquinas
+  // diferentes, e visto num tem que sumir nos dois.
+  const [avisosVistos, setAvisosVistos] = useState<Set<string>>(new Set());
+  const [avisosAbertos, setAvisosAbertos] = useState(false);
+  const [mostrarVistos, setMostrarVistos] = useState(false);
+  const [marcandoVisto, setMarcandoVisto] = useState<string | null>(null);
+  const [erroAviso, setErroAviso] = useState<string | null>(null);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [{ data: reps }, { data: hist, error: histError }, { data: equips }, { data: precos }, { data: comb }] = await Promise.all([
+    const [{ data: reps }, { data: hist, error: histError }, { data: equips }, { data: precos }, { data: comb }, { data: vistos, error: vistosError }] = await Promise.all([
+      // O `id` entrou em 11/09 por causa dos avisos: é ele que identifica o
+      // lançamento na tabela de vistos.
       supabase.from('relatorios_consolidados')
-        .select('data, turno, lider, locacoes, voos')
+        .select('id, data, turno, lider, locacoes, voos')
         .gte('data', startDate).lte('data', endDate).order('data'),
       // Histórico SEM recorte de data de propósito: o retorno de um equipamento
       // costuma cair fora do período escolhido, e sem ele não dá pra saber quem
@@ -365,9 +379,15 @@ const GerenciaDashboard: React.FC = () => {
         .select('id, data, tipo, litros')
         .gte('data', startDate).lte('data', endDate)
         .order('data', { ascending: false }),
+      // Sem recorte de data: é pequena e a chave já carrega o relatório. Se a
+      // tabela ainda não existir no banco, cai em lista vazia e o painel
+      // continua de pé, só sem lembrar o que já foi visto.
+      supabase.from('avisos_vistos').select('chave'),
     ]);
     if (histError) console.error('[Manutenção] erro:', histError);
+    if (vistosError) console.error('[Avisos] erro ao ler os vistos:', vistosError);
     setReports(reps || []);
+    setAvisosVistos(new Set((vistos || []).map((v: any) => v.chave)));
     setFleetHistory(hist || []);
     if (equips) {
       const m = new Map<string, string>();
@@ -566,12 +586,45 @@ const GerenciaDashboard: React.FC = () => {
   const detalheDoDia = useMemo(() => {
     if (!diaDetalhe) return null;
     const doDia = reports.filter(r => r.data === diaDetalhe);
+    // `_chave` é a mesma identidade da lista de avisos: é por ela que a linha
+    // suspeita ganha a marca aqui dentro também.
     const voos = doDia.flatMap((r: any) =>
-      (r.voos || []).map((v: any) => ({ ...v, _turno: r.turno, _lider: r.lider })));
+      (r.voos || []).map((v: any, i: number) => ({ ...v, _turno: r.turno, _lider: r.lider, _chave: chaveVoo(r.id, i, v) })));
     const equipamentos = doDia.flatMap((r: any) =>
-      (r.locacoes || []).map((l: any) => ({ ...l, _turno: r.turno, _lider: r.lider })));
+      (r.locacoes || []).map((l: any, i: number) => ({ ...l, _turno: r.turno, _lider: r.lider, _chave: chaveLocacao(r.id, i, l) })));
     return { data: diaDetalhe, turnos: doDia.length, voos, equipamentos };
   }, [diaDetalhe, reports]);
+
+  // ── Lançamentos com horário que não fecha ────────────────────────────────
+  // Sai dos relatórios do período, então acompanha o calendário do topo como
+  // todo o resto do painel. Os já vistos ficam fora da faixa e guardados.
+  const incoerencias = useMemo(() => incoerenciasDosRelatorios(reports), [reports]);
+  const incoerenciasPendentes = useMemo(() =>
+    incoerencias.filter(i => !avisosVistos.has(i.chave)), [incoerencias, avisosVistos]);
+  const incoerenciasVistas = useMemo(() =>
+    incoerencias.filter(i => avisosVistos.has(i.chave)), [incoerencias, avisosVistos]);
+  const chavesPendentes = useMemo(() =>
+    new Set(incoerenciasPendentes.map(i => i.chave)), [incoerenciasPendentes]);
+
+  // "Vi a notificação": grava no banco e só então some da faixa. Se a
+  // gravação falhar, o aviso FICA e a tela diz por quê, em vez de sumir só
+  // neste navegador e voltar no próximo carregamento.
+  const marcarAvisoVisto = async (i: Incoerencia) => {
+    setMarcandoVisto(i.chave);
+    setErroAviso(null);
+    const { error } = await supabase.from('avisos_vistos').upsert({
+      chave: i.chave,
+      relatorio_id: i.relatorioId,
+      descricao: `${fmtFullDate(i.data)} ${shiftLabel(i.turno)} ${i.lider} · ${i.tipo === 'voo' ? 'voo' : 'locação'} ${i.nome} ${i.inicio} às ${i.fim} · ${i.motivo}`,
+    }, { onConflict: 'chave' });
+    setMarcandoVisto(null);
+    if (error) {
+      console.error('[Avisos] erro ao gravar o visto:', error);
+      setErroAviso('Não consegui gravar que você viu. Tente de novo.');
+      return;
+    }
+    setAvisosVistos(prev => new Set([...prev, i.chave]));
+  };
 
   // ── Alocações internas (tipo ALOCAR): equipamento nosso emprestado ───────
   const alocacoes = useMemo(() =>
@@ -893,7 +946,16 @@ const GerenciaDashboard: React.FC = () => {
                           </td>
                           <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569' }}>{v.numero || 'S/N'}</td>
                           <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569' }}>{v.inicio || '--:--'}</td>
-                          <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569' }}>{v.fim || '--:--'}</td>
+                          <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                              {v.fim || '--:--'}
+                              {chavesPendentes.has(v._chave) && (
+                                <span title={`Conta ${fmtDuracao(calcMinutes(v.inicio, v.fim))}. Está na faixa de avisos do painel.`} style={{ display: 'inline-flex' }}>
+                                  <AlertTriangle size={12} color="#D97706" />
+                                </span>
+                              )}
+                            </span>
+                          </td>
                           <td style={{ ...tableStyles.td, fontSize: 11, padding: '6px 8px', color: '#94A3B8', whiteSpace: 'nowrap' }}>
                             {shiftLabel(v._turno)} · {v._lider}
                           </td>
@@ -941,7 +1003,14 @@ const GerenciaDashboard: React.FC = () => {
                               )}
                             </td>
                             <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569', whiteSpace: 'nowrap' }}>
-                              {l.inicio} às {l.fim}
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                {l.inicio} às {l.fim}
+                                {chavesPendentes.has(l._chave) && (
+                                  <span title={`Conta ${fmtDuracao(calcMinutes(l.inicio, l.fim))}. Está na faixa de avisos do painel.`} style={{ display: 'inline-flex' }}>
+                                    <AlertTriangle size={12} color="#D97706" />
+                                  </span>
+                                )}
+                              </span>
                             </td>
                             <td style={{ ...tableStyles.td, fontSize: 12, padding: '6px 8px', color: '#475569', whiteSpace: 'nowrap' }}>
                               {externa
@@ -1363,6 +1432,114 @@ const GerenciaDashboard: React.FC = () => {
         </>
       ) : (
         <>
+          {/* ── Lançamentos com horário que não fecha ──
+              Faixa fechada por padrão, com o número; abre pra ver cada um. Só
+              aparece enquanto houver pendente. "Vi a notificação" tira da
+              faixa sem apagar nada do relatório: se for erro, corrige-se no
+              banco e o aviso some sozinho, porque a chave carrega o horário. */}
+          {(incoerenciasPendentes.length > 0 || (mostrarVistos && incoerenciasVistas.length > 0)) && (
+            <div style={{
+              flexShrink: 0, background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10,
+              padding: '8px 14px', fontSize: 12, color: '#92400E',
+              display: 'flex', flexDirection: 'column', gap: 8,
+              maxHeight: avisosAbertos ? '38%' : undefined, minHeight: 0,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                <AlertTriangle size={15} />
+                <span style={{ flex: 1 }}>
+                  {incoerenciasPendentes.length > 0 ? (
+                    <>
+                      <strong>{plural(incoerenciasPendentes.length, 'lançamento com horário que não fecha', 'lançamentos com horário que não fecha')}</strong>
+                      {' '}no período. Confira antes de confiar no total.
+                    </>
+                  ) : (
+                    <strong>Nenhum pendente no período.</strong>
+                  )}
+                </span>
+                {incoerenciasVistas.length > 0 && (
+                  <button
+                    onClick={() => { setMostrarVistos(v => !v); setAvisosAbertos(true); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B45309', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', textDecoration: 'underline' }}
+                  >
+                    {mostrarVistos ? 'esconder os já vistos' : `já vistos (${incoerenciasVistas.length})`}
+                  </button>
+                )}
+                <button
+                  onClick={() => setAvisosAbertos(v => !v)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5, background: '#fff', border: '1px solid #FDE68A',
+                    borderRadius: 8, padding: '5px 10px', cursor: 'pointer', color: '#92400E',
+                    fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                  }}
+                >
+                  {avisosAbertos ? <><ChevronUp size={13} /> Fechar</> : <><ChevronDown size={13} /> Ver</>}
+                </button>
+              </div>
+
+              {erroAviso && (
+                <p style={{ margin: 0, fontSize: 12, color: '#B91C1C', fontWeight: 600 }}>{erroAviso}</p>
+              )}
+
+              {avisosAbertos && (
+                <div className="rolagem-fina" style={{ minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {[...incoerenciasPendentes, ...(mostrarVistos ? incoerenciasVistas : [])].map(i => {
+                    const visto = avisosVistos.has(i.chave);
+                    const externa = i.tipo === 'locacao' && i.origem !== null;
+                    return (
+                      <div key={i.chave} style={{
+                        display: 'flex', alignItems: 'center', gap: 12, background: '#fff',
+                        border: '1px solid #FDE68A', borderRadius: 8, padding: '8px 12px',
+                        opacity: visto ? 0.55 : 1,
+                      }}>
+                        <div style={{ width: 150, flexShrink: 0, fontSize: 11, color: '#64748B', lineHeight: 1.4 }}>
+                          <div style={{ fontWeight: 700, color: '#1E293B' }}>{fmtFullDate(i.data)}</div>
+                          <div>{shiftLabel(i.turno)} · {i.lider}</div>
+                        </div>
+                        <div style={{ width: 270, flexShrink: 0, fontSize: 12, color: '#1E293B', lineHeight: 1.4 }}>
+                          <span style={{
+                            background: i.tipo === 'voo' ? '#EFF6FF' : externa ? '#FFF7ED' : '#EFF6FF',
+                            color: i.tipo === 'voo' ? '#1E293B' : externa ? '#EA580C' : '#3B82F6',
+                            fontWeight: 700, borderRadius: 20, padding: '1px 8px', fontSize: 10, marginRight: 6,
+                          }}>
+                            {i.tipo === 'voo' ? 'Voo' : externa ? 'Locado' : 'Nosso'}
+                          </span>
+                          <strong>{nomeVisivel(i.tipo === 'locacao' && !externa ? (equipNames.get(i.nome) || i.nome) : i.nome)}</strong>
+                          {i.origem && <span style={{ color: '#64748B' }}> · {i.origem}</span>}
+                          <div style={{ color: '#475569' }}>{i.inicio} às {i.fim}</div>
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#92400E', lineHeight: 1.4 }}>
+                          {i.motivo}
+                          {i.valor !== null && (
+                            <div style={{ fontWeight: 700, color: '#1E293B' }}>
+                              Entrando no total: {fmtBRL(i.valor)} ({i.horasCobradas}h cobradas)
+                            </div>
+                          )}
+                        </div>
+                        {visto ? (
+                          <span style={{ flexShrink: 0, fontSize: 11, color: '#64748B', fontWeight: 600 }}>Visto</span>
+                        ) : (
+                          <button
+                            onClick={() => marcarAvisoVisto(i)}
+                            disabled={marcandoVisto === i.chave}
+                            style={{
+                              flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6,
+                              background: '#1E293B', color: '#fff', border: 'none', borderRadius: 8,
+                              padding: '7px 12px', cursor: marcandoVisto === i.chave ? 'default' : 'pointer',
+                              fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+                              opacity: marcandoVisto === i.chave ? 0.5 : 1,
+                            }}
+                          >
+                            <Eye size={13} /> Vi a notificação
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── Row 1: Donut + Custo por Equip + Top 10 ── */}
           <div style={{ flex: '0 0 42%', minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1.2fr 1.2fr', gap: 12 }}>
 

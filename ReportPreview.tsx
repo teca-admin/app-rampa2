@@ -127,6 +127,11 @@ export const buildMessage = (report: any): string => {
     message += `Km não informado.\n`;
   }
 
+  // OBS do turno (11/09/2026). Mesma regra do Km: quando vazio, a linha DIZ
+  // que não tem, em vez de sumir.
+  message += `\n*OBS:* 📝\n`;
+  message += `${report.observacoes ? report.observacoes : 'Sem observações.'}\n`;
+
   return message;
 };
 

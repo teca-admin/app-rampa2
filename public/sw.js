@@ -26,7 +26,7 @@
 //
 // 📌 AO SUBIR VERSÃO NOVA DO APP, SUBIR ESTE NÚMERO. É o que aposenta o cache
 // antigo e faz o líder receber o app novo.
-const CACHE = 'rampcontroll-v2';
+const CACHE = 'rampcontroll-v3';
 
 // Só o que existe com nome fixo. O resto (os /assets/ com hash) entra sozinho
 // conforme o app é usado, porque o nome deles muda a cada publicação e não dá
