@@ -5,7 +5,7 @@ import {
   ResponsiveContainer, Cell,
 } from 'recharts';
 import { supabase } from './supabase';
-import { Plane, MessageSquare, Users, UserX, Calendar, CheckSquare, Car } from 'lucide-react';
+import { Plane, MessageSquare, Users, UserX, Calendar, CheckSquare, Car, X } from 'lucide-react';
 import {
   fmtShortDate, fmtFullDate, todayStr, firstDayOfCurrentMonth, shiftLabel,
   ChartTooltip, DateRangePicker, tableStyles,
@@ -86,6 +86,70 @@ const CelulaProva: React.FC<{
   </td>
 );
 
+// ─── O OBS do turno, aberto pelo km (16/09/2026) ───────────────────────────
+// Pedido dele: "em alguns registros eles colocam observações e é importante
+// que eu consiga clicar e ver, pra entender o motivo de a SPIN andar mais num
+// turno que em outro". O OBS é o campo livre da seção 10 do relatório, o mesmo
+// que sai no fim da mensagem do WhatsApp. Aqui ele aparece como o líder
+// escreveu, com as quebras de linha (pre-wrap): é o texto dele, não é dado.
+type ObsAberta = { data: string; turno: string; lider: string; ini: number; fim: number; rodados: number; obs: string };
+
+const VerObs: React.FC<{ item: ObsAberta; onFechar: () => void }> = ({ item, onFechar }) => {
+  useEffect(() => {
+    const aoTeclar = (e: KeyboardEvent) => { if (e.key === 'Escape') onFechar(); };
+    window.addEventListener('keydown', aoTeclar);
+    return () => window.removeEventListener('keydown', aoTeclar);
+  }, [onFechar]);
+
+  return (
+    <div
+      onClick={onFechar}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: 14, padding: 24, maxWidth: 520, width: '92%',
+          maxHeight: '80vh', display: 'flex', flexDirection: 'column',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.25)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexShrink: 0 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#1E293B' }}>
+            Km do SPIN · {item.rodados.toLocaleString('pt-BR')} km
+          </span>
+          <button
+            onClick={onFechar}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', display: 'flex', padding: 4 }}
+            title="Fechar"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <p style={{ margin: '0 0 18px', fontSize: 11, color: '#94A3B8', flexShrink: 0 }}>
+          {fmtFullDate(item.data)} · {shiftLabel(item.turno)} · {item.lider || 'sem líder'} · {item.ini.toLocaleString('pt-BR')} → {item.fim.toLocaleString('pt-BR')}
+        </p>
+        <p style={{ margin: '0 0 8px', fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', flexShrink: 0 }}>
+          OBS do líder
+        </p>
+        <div
+          className="rolagem-fina"
+          style={{
+            flex: 1, minHeight: 0, overflowY: 'auto', whiteSpace: 'pre-wrap',
+            fontSize: 14, lineHeight: 1.55, color: '#1E293B',
+            background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: '12px 14px',
+          }}
+        >
+          {item.obs}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 const CoordDashboard: React.FC = () => {
   const [startDate, setStartDate] = useState(firstDayOfCurrentMonth());
@@ -95,13 +159,21 @@ const CoordDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   // A prova aberta na tela. Null é o estado normal: ela só abre por clique.
   const [prova, setProva] = useState<ProvaAberta | null>(null);
+  // O OBS aberto pelo km. Null é o estado normal: só abre por clique.
+  const [obsAberta, setObsAberta] = useState<ObsAberta | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    // 🔥 As colunas do Km do SPIN ficaram FORA desta lista de 10/09 a 16/09/2026.
+    // O cálculo lá embaixo lia `r.km_spin_inicial`, que chegava sempre
+    // undefined, e todo turno caía em "sem informar": o painel mostrava 0 km
+    // com 13 relatórios preenchidos no banco. Ninguém viu porque até 11/09
+    // nenhum líder tinha preenchido, e "nenhum turno com km" parecia verdade.
+    // Coluna nova no relatório entra AQUI também, senão o painel não a vê.
     const { data } = await supabase
       .from('relatorios_consolidados')
-      .select('data, turno, lider, voos, transporte_tripulacao, briefing_inicio, briefing_fim, debriefing_inicio, debriefing_fim, teve_falta, detalhe_falta, briefing_prova_id, briefing_foto, debriefing_prova_id, debriefing_foto')
+      .select('data, turno, lider, voos, transporte_tripulacao, briefing_inicio, briefing_fim, debriefing_inicio, debriefing_fim, teve_falta, detalhe_falta, briefing_prova_id, briefing_foto, debriefing_prova_id, debriefing_foto, km_spin_inicial, km_spin_final, observacoes')
       .gte('data', startDate).lte('data', endDate).order('data');
     setReports(data || []);
     setLoading(false);
@@ -145,37 +217,38 @@ const CoordDashboard: React.FC = () => {
 
   // ── Briefing/Debriefing records ───────────────────────────────────────────
   // ─── Km do SPIN, pedido do coordenador em 10/09/2026 ───────────────────────
-  // Ele quer saber quanto o carro roda por turno, qual turno usa mais e em que
-  // média. A ordem da tabela é pelo TOTAL de km, porque é ela que responde
-  // "qual turno mais usa" sem obrigar ninguém a comparar número com o dedo.
+  // 🔴 16/09/2026: virou DESCRITIVO, UMA LINHA POR ENVIO, pedido dele ao ver a
+  // primeira versão com dado real ("o acumulado não, eu quero o descritivo, por
+  // envio"). A soma por tipo de turno, com média, que respondia "qual turno
+  // mais usa", SAIU. Se um dia fizer falta, está no commit anterior a este.
+  // A ordem é a do envio (data, depois turno), igual ao card de Briefings ao
+  // lado, pra uma coluna se ler como continuação da outra.
   //
   // 🔑 O preenchimento é opcional (decisão dele), então "sem km informado" é um
   // número que a tela MOSTRA: sem ele, um turno que ninguém preencheu ficaria
-  // indistinguível de um turno em que o carro não rodou, e a média mentiria
-  // pra mais sem nada avisando.
+  // indistinguível de um turno em que o carro não rodou.
   //
   // ⚠️ Relatório com final MENOR que o inicial é dígito trocado e não entra na
   // conta. O app novo não deixa gravar assim, mas o histórico pode ter, e uma
   // subtração negativa derrubaria o total do período calada.
   const kmSpin = useMemo(() => {
-    const porTurno = new Map<string, { turnos: number; km: number }>();
-    let semKm = 0, total = 0, comKm = 0;
+    const ordemTurno: Record<string, number> = { madrugada: 0, manha: 1, 'manhã': 1, tarde: 2, noite: 3 };
+    const linhas: (Omit<ObsAberta, 'obs'> & { obs: string | null })[] = [];
+    let semKm = 0, total = 0;
     reports.forEach(r => {
       const ini = r.km_spin_inicial, fim = r.km_spin_final;
       const valido = ini !== null && ini !== undefined
         && fim !== null && fim !== undefined && fim >= ini;
       if (!valido) { semKm++; return; }
       const rodados = fim - ini;
-      const chave = String(r.turno || '');
-      const acc = porTurno.get(chave) || { turnos: 0, km: 0 };
-      acc.turnos += 1; acc.km += rodados;
-      porTurno.set(chave, acc);
-      total += rodados; comKm++;
+      // OBS só em branco vira null: o clique só existe onde há o que ler.
+      const obs = typeof r.observacoes === 'string' && r.observacoes.trim() !== '' ? r.observacoes.trim() : null;
+      linhas.push({ data: r.data, turno: String(r.turno || ''), lider: r.lider || '', ini, fim, rodados, obs });
+      total += rodados;
     });
-    const linhas = [...porTurno.entries()]
-      .map(([turno, v]) => ({ turno, ...v, media: v.turnos > 0 ? v.km / v.turnos : 0 }))
-      .sort((a, b) => b.km - a.km);
-    return { linhas, semKm, total, comKm };
+    linhas.sort((a, b) => a.data.localeCompare(b.data)
+      || (ordemTurno[a.turno] ?? 9) - (ordemTurno[b.turno] ?? 9));
+    return { linhas, semKm, total, comKm: linhas.length };
   }, [reports]);
 
   const briefDebriefRecords = useMemo(() =>
@@ -363,7 +436,7 @@ const CoordDashboard: React.FC = () => {
               )}
             </TableCard>
 
-            <TableCard title="Km do SPIN por turno">
+            <TableCard title="Km do SPIN por envio">
               {kmSpin.comKm === 0 ? (
                 <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 14px' }}>
                   <p style={{ color: '#94A3B8', fontSize: 13, textAlign: 'center' }}>
@@ -374,25 +447,43 @@ const CoordDashboard: React.FC = () => {
                 <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
                   <thead style={{ position: 'sticky', top: 0 }}>
                     <tr>
-                      {['Turno', 'Turnos', 'Km total', 'Média'].map((h, i) => (
-                        <th key={h} style={{ ...tableStyles.th, textAlign: i === 0 ? 'left' : 'right', fontSize: 10, padding: '8px 10px' }}>{h}</th>
+                      {['Data', 'Turno', 'Líder', 'Km'].map((h, i) => (
+                        <th key={h} style={{ ...tableStyles.th, textAlign: i === 3 ? 'right' : 'left', fontSize: 10, padding: '8px 10px' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {kmSpin.linhas.map((l, i) => (
-                      <tr key={l.turno} style={{ background: i % 2 === 0 ? '#fff' : '#F8FAFC' }}>
-                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '9px 10px', fontWeight: 600 }}>
-                          {shiftLabel(l.turno)}
-                        </td>
-                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '9px 10px', textAlign: 'right', color: '#64748B' }}>
-                          {l.turnos}
-                        </td>
-                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '9px 10px', textAlign: 'right', fontWeight: 700 }}>
-                          {l.km.toLocaleString('pt-BR')} km
-                        </td>
-                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '9px 10px', textAlign: 'right', fontWeight: 700, color: '#2563EB' }}>
-                          {Math.round(l.media).toLocaleString('pt-BR')} km
+                      <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#F8FAFC' }}>
+                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '8px 10px' }}>{fmtFullDate(l.data)}</td>
+                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '8px 10px' }}>{shiftLabel(l.turno)}</td>
+                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '8px 10px' }}>{l.lider || '—'}</td>
+                        {/* Rodados em cima, de → a embaixo, numa célula só: com
+                            cinco colunas o card não cabia a 1440px e a última
+                            vazava pra fora. Quatro colunas, como os vizinhos. */}
+                        <td style={{ ...tableStyles.td, fontSize: 12, padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {/* 🔑 O KM É O BOTÃO, e só onde há OBS. Linha sem
+                              observação fica texto comum, sem sublinhado e
+                              sem mão: prometer clique e abrir vazio é pior
+                              que não prometer. Mesma regra da prova ao lado. */}
+                          {l.obs ? (
+                            <button
+                              onClick={() => setObsAberta({ ...l, obs: l.obs as string })}
+                              title="Ver a observação do líder neste turno"
+                              style={{
+                                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                                color: '#2563EB', fontWeight: 700, fontSize: 12,
+                                textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3,
+                              }}
+                            >
+                              {l.rodados.toLocaleString('pt-BR')} km
+                            </button>
+                          ) : (
+                            <div style={{ fontWeight: 700, color: '#2563EB' }}>{l.rodados.toLocaleString('pt-BR')} km</div>
+                          )}
+                          <div style={{ fontSize: 10, color: '#94A3B8', marginTop: 1 }}>
+                            {l.ini.toLocaleString('pt-BR')} → {l.fim.toLocaleString('pt-BR')}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -400,7 +491,7 @@ const CoordDashboard: React.FC = () => {
                   <tfoot>
                     <tr>
                       <td colSpan={4} style={{ ...tableStyles.tfootTd, fontSize: 11, padding: '10px' }}>
-                        {kmSpin.comKm} turno(s) com km informado
+                        Total: {kmSpin.total.toLocaleString('pt-BR')} km em {kmSpin.comKm} envio(s)
                         {kmSpin.semKm > 0 && `, ${kmSpin.semKm} sem informar`}
                       </td>
                     </tr>
@@ -413,6 +504,7 @@ const CoordDashboard: React.FC = () => {
       )}
 
       {prova && <VerProva prova={prova} onFechar={() => setProva(null)} />}
+      {obsAberta && <VerObs item={obsAberta} onFechar={() => setObsAberta(null)} />}
     </div>
   );
 };

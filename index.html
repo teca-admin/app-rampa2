@@ -80,10 +80,22 @@
     </div>
     <script type="module" src="/index.tsx"></script>
     <script>
+      // 🔴 EM DEV O SERVICE WORKER NAO ENTRA, e se ja estiver la ele SAI. O sw.js
+      // guarda todo arquivo da mesma origem com cache primeiro, e em dev a Vite
+      // serve /CoordDashboard.tsx e companhia soltos: com ele registrado, cada
+      // correcao aparece VELHA na primeira recarga (aconteceu em 16/09/2026 com
+      // o Km do SPIN: corrigido no codigo, 0 km na tela dele). O %DEV% e trocado
+      // pela Vite ao servir; no build vira 'false' e a producao registra como
+      // sempre. Pra testar o offline, usar o build: `npx vite preview`.
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW registration failed: ', err));
-        });
+        if ('%DEV%' === 'true') {
+          navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
+          if (window.caches) caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
+        } else {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW registration failed: ', err));
+          });
+        }
       }
     </script>
 </body>
