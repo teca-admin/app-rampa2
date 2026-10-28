@@ -171,9 +171,10 @@ const CoordDashboard: React.FC = () => {
     // com 13 relatórios preenchidos no banco. Ninguém viu porque até 11/09
     // nenhum líder tinha preenchido, e "nenhum turno com km" parecia verdade.
     // Coluna nova no relatório entra AQUI também, senão o painel não a vê.
+    // (28/10/2026: entrou o `briefing_tema`, o tema do dia do MGO.)
     const { data } = await supabase
       .from('relatorios_consolidados')
-      .select('data, turno, lider, voos, transporte_tripulacao, briefing_inicio, briefing_fim, debriefing_inicio, debriefing_fim, teve_falta, detalhe_falta, briefing_prova_id, briefing_foto, debriefing_prova_id, debriefing_foto, km_spin_inicial, km_spin_final, observacoes')
+      .select('data, turno, lider, voos, transporte_tripulacao, briefing_inicio, briefing_fim, debriefing_inicio, debriefing_fim, teve_falta, detalhe_falta, briefing_prova_id, briefing_foto, debriefing_prova_id, debriefing_foto, km_spin_inicial, km_spin_final, observacoes, briefing_tema')
       .gte('data', startDate).lte('data', endDate).order('data');
     setReports(data || []);
     setLoading(false);
@@ -377,6 +378,7 @@ const CoordDashboard: React.FC = () => {
                             provaId: r.briefing_prova_id, foto: r.briefing_foto || null,
                             titulo: 'Briefing', horario: `${r.briefing_inicio}–${r.briefing_fim || '?'}`,
                             subtitulo: `${fmtFullDate(r.data)} · ${shiftLabel(r.turno)} · ${r.lider || 'sem líder'}`,
+                            comTema: true, tema: r.briefing_tema || null,
                           })}
                         />
                         <CelulaProva

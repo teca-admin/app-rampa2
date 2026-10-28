@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { Presenca, listarPresencas, provaUrl } from './provas';
+import { TemaGravado } from './temaDoDia';
 
 // ─── A prova aberta no painel ──────────────────────────────────────────────
 // Criado em 14/09/2026. Clicar no horário de um briefing ou de um debriefing
@@ -18,6 +19,10 @@ export interface ProvaAberta {
   titulo: string;   // "Briefing" ou "Debriefing"
   subtitulo: string; // data, turno e líder
   horario: string;
+  // O tema do dia do MGO (28/10/2026). `comTema` é true só no briefing: o
+  // debriefing não tem tema, e mostrar "sem tema" nele sugeriria uma falta.
+  comTema?: boolean;
+  tema?: TemaGravado | null;
 }
 
 const hora = (iso: string): string => {
@@ -84,6 +89,43 @@ const VerProva: React.FC<{ prova: ProvaAberta; onFechar: () => void }> = ({ prov
         </p>
 
         <div className="rolagem-fina" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'grid', gap: 20 }}>
+          {/* ── O tema do dia (28/10/2026) ──
+              Em cima da foto porque é o que a auditoria pergunta primeiro: do
+              que se falou. O texto é a CÓPIA gravada no envio, e não a lista
+              atual do app: se o MGO mudar de revisão, o registro continua
+              dizendo o que foi dito naquele dia. */}
+          {prova.comTema && (
+            <div>
+              <p style={{ margin: '0 0 8px', fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Tema do dia
+              </p>
+              {prova.tema ? (
+                <div style={{ border: '1px solid #E2E8F0', borderRadius: 10, padding: '14px 16px', background: '#F8FAFC' }}>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#1E293B' }}>
+                    <span style={{ color: '#7C3AED' }}>Tema {prova.tema.dia}</span> · {prova.tema.titulo}
+                  </p>
+                  <p style={{ margin: '3px 0 10px', fontSize: 11, color: '#94A3B8' }}>
+                    MGO {prova.tema.mgo} · {prova.tema.revisao}
+                  </p>
+                  {/* `listStyle` explícito: o Tailwind zera o estilo de lista, e
+                      sem ele os pontos saem sem o 1, 2, 3 que o documento usa. */}
+                  <ol style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 5, listStyle: 'decimal' }}>
+                    {prova.tema.pontos.map((ponto, i) => (
+                      <li key={i} style={{ fontSize: 12.5, color: '#334155', lineHeight: 1.45 }}>{ponto}</li>
+                    ))}
+                  </ol>
+                  <p style={{ margin: '10px 0 0', fontSize: 11, color: '#64748B' }}>
+                    O líder marcou como lido para a equipe às {hora(prova.tema.confirmado_em)}.
+                  </p>
+                </div>
+              ) : (
+                <p style={{ fontSize: 13, color: '#94A3B8', margin: 0 }}>
+                  Sem tema registrado: este briefing é anterior ao tema do dia no app.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* ── A foto ── */}
           <div>
             <p style={{ margin: '0 0 8px', fontSize: 10, color: '#94A3B8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>

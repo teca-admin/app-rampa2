@@ -22,6 +22,7 @@ import {
   ProvaLocal, TipoProva, enviarProva, gravarProvaLocal, lerProvaLocal,
   limparProvasLocais, provaVazia, rotuloProva,
 } from './provas';
+import { TemaConfirmado, temaDoDia, temaConfirmadoValido, temaParaGravar } from './temaDoDia';
 
 // --- HELPERS ---
 const getLocalDateString = () => {
@@ -122,6 +123,10 @@ const AppInner: React.FC = () => {
   const [formKmSpin, setFormKmSpin] = useState({ inicial: '', final: '' });
   // OBS do turno, texto livre e opcional, na seção 10. Pedido dele em 11/09/2026.
   const [formObs, setFormObs] = useState('');
+  // O tema do dia do MGO (28/10/2026): qual tema o líder marcou como lido para
+  // a equipe, e quando. Guarda o dia do tema, e não um sim/não: se a data do
+  // relatório mudar, o tema muda e a confirmação velha deixa de valer sozinha.
+  const [formTemaLido, setFormTemaLido] = useState<TemaConfirmado | null>(null);
   // ─── A prova do briefing e do debriefing, pedido dele em 14/09/2026 ──────
   // 🔑 Fica FORA do rascunho, em chave própria do localStorage. O rascunho é
   // salvo a cada tecla, e carregar a foto reduzida junto faria o formulário
@@ -208,6 +213,7 @@ const AppInner: React.FC = () => {
       if (c.formDebriefing) setFormDebriefing(c.formDebriefing);
       if (c.formKmSpin) setFormKmSpin(c.formKmSpin);
       if (typeof c.formObs === 'string') setFormObs(c.formObs);
+      if (c.formTemaLido && typeof c.formTemaLido.dia === 'number') setFormTemaLido(c.formTemaLido);
       setRascunhoSalvoEm(r.salvoEm);
       setRascunhoRestaurado(r.salvoEm);
     } else if (r) {
@@ -234,13 +240,13 @@ const AppInner: React.FC = () => {
       campos: {
         formDate, formShift, formLeader, formHR, formPendencias, formOcorrencias,
         formRentals, formGseOut, formGseIn, formFlights, formTransporte,
-        formBriefing, formDebriefing, formKmSpin, formObs,
+        formBriefing, formDebriefing, formKmSpin, formObs, formTemaLido,
       },
     });
     setRascunhoSalvoEm(salvoEm);
   }, [formDate, formShift, formLeader, formHR, formPendencias, formOcorrencias,
       formRentals, formGseOut, formGseIn, formFlights, formTransporte,
-      formBriefing, formDebriefing, formKmSpin, formObs]);
+      formBriefing, formDebriefing, formKmSpin, formObs, formTemaLido]);
 
   // ─── Abre o aviso assim que um par de horários fica invertido ────────────
   // Roda a cada mudança nos quatro lugares que têm início e fim (locações,
@@ -290,6 +296,7 @@ const AppInner: React.FC = () => {
     setFormDebriefing({ ativo: false, inicio: '', fim: '' });
     setFormKmSpin({ inicial: '', final: '' });
     setFormObs('');
+    setFormTemaLido(null);
     // A prova morre junto com o formulário, pelo mesmo motivo do rascunho:
     // sobrando, o turno seguinte abriria com a lista de presença do anterior.
     setProvaBriefing(provaVazia());
@@ -372,6 +379,16 @@ const AppInner: React.FC = () => {
   // de digitar, e "Corrigir" sem corrigir de fato chegaria aqui calado.
   const handleGoToPreview = () => {
     if (!formLeader) { toast('Selecione o Líder!', 'warning'); return; }
+    // 🔴 Briefing ligado exige o tema do dia lido para a equipe (28/10/2026).
+    // Vem ANTES da prova porque vem antes no pátio: o líder lê o tema e só
+    // depois colhe as assinaturas. Leva a tela até o cartão, senão o aviso
+    // diria o que falta sem dizer onde.
+    const tema = temaDoDia(formDate);
+    if (formBriefing.ativo && tema && !temaConfirmadoValido(formDate, formTemaLido)) {
+      toast(`Briefing: marque que leu para a equipe os 3 pontos do tema do dia ${tema.dia}.`, 'warning');
+      document.getElementById('tema-do-dia')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     // 🔴 Briefing ligado exige prova. É o pedido dele de 14/09: a informação do
     // briefing só vale acompanhada de quem estava e da foto. Segura aqui, e
     // não na confirmação, porque a essa altura o líder ainda está no pátio,
@@ -478,6 +495,10 @@ const AppInner: React.FC = () => {
         briefing_fim: formBriefing.ativo ? (formBriefing.fim || null) : null,
         debriefing_inicio: formDebriefing.ativo ? (formDebriefing.inicio || null) : null,
         debriefing_fim: formDebriefing.ativo ? (formDebriefing.fim || null) : null,
+        // O tema do dia do MGO (28/10/2026), como CÓPIA: título, os 3 pontos,
+        // a referência, a revisão e a hora em que o líder marcou como lido. Só
+        // com briefing; o debriefing não tem tema, decisão dele.
+        briefing_tema: formBriefing.ativo ? temaParaGravar(formDate, formTemaLido) : null,
         // 🔑 A id da prova entra AQUI, ainda sem o caminho da foto: a foto só
         // ganha caminho depois de subir, na confirmação. A id, não: ela nasceu
         // no celular quando o líder abriu a lista, e é por ela que as
@@ -792,6 +813,7 @@ const AppInner: React.FC = () => {
               formObs={formObs} setFormObs={setFormObs}
               provaBriefing={provaBriefing} provaDebriefing={provaDebriefing}
               abrirProva={setProvaAberta}
+              formTemaLido={formTemaLido} setFormTemaLido={setFormTemaLido}
             />
             </div>
             </div>

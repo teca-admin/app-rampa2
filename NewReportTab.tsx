@@ -5,6 +5,8 @@ import { horarioInvertido, fmtDuracao } from './horarios';
 import { calcMinutes } from './DashboardUtils';
 import { BotaoProva } from './ColetaProva';
 import { ProvaLocal, TipoProva } from './provas';
+import CartaoTema from './CartaoTema';
+import { TemaConfirmado } from './temaDoDia';
 
 // Linha embaixo do par início/fim quando o fim é menor ou igual ao início.
 // É a marca que fica na tela depois que o aviso fecha: o líder que escolheu
@@ -73,6 +75,9 @@ interface NewReportTabProps {
   provaBriefing: ProvaLocal;
   provaDebriefing: ProvaLocal;
   abrirProva: (tipo: TipoProva) => void;
+  // O tema do dia do MGO (28/10/2026): qual tema o líder confirmou ter lido.
+  formTemaLido: TemaConfirmado | null;
+  setFormTemaLido: (t: TemaConfirmado | null) => void;
 }
 
 // Equipamentos segregados por fornecedor (correspondem exatamente à tabela de preços no Supabase)
@@ -615,6 +620,20 @@ const NewReportTab: React.FC<NewReportTabProps> = (props) => {
                )}
              </div>
            </div>
+
+           {/* O tema do dia do MGO (28/10/2026). 🔴 SÓ COM O BRIEFING LIGADO,
+               decisão dele: o tema é do briefing, e o debriefing continua como
+               era. Fica EMBAIXO dos dois botões, na largura toda: dentro da
+               coluna do briefing os 3 pontos ficariam espremidos em meia tela,
+               e em cima dos botões o cartão empurraria pra baixo o botão que o
+               líder acabou de tocar. */}
+           {props.formBriefing.ativo && (
+             <CartaoTema
+               data={props.formDate}
+               confirmado={props.formTemaLido}
+               onConfirmar={props.setFormTemaLido}
+             />
+           )}
          </div>
 
          {/* KM DO SPIN

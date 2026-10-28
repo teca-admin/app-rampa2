@@ -105,6 +105,11 @@ export const buildMessage = (report: any): string => {
   if (temBriefing || temDebriefing) {
     if (temBriefing) {
       message += `• *Briefing:* ${report.briefing_inicio || '--:--'} às ${report.briefing_fim || '--:--'}\n`;
+      // O tema do dia do MGO (28/10/2026), na linha de baixo e em itálico,
+      // como o nome do colaborador na falta da seção 1.
+      if (report.briefing_tema) {
+        message += `  _Tema ${report.briefing_tema.dia}: ${report.briefing_tema.titulo}_\n`;
+      }
     }
     if (temDebriefing) {
       message += `• *Debriefing:* ${report.debriefing_inicio || '--:--'} às ${report.debriefing_fim || '--:--'}\n`;
